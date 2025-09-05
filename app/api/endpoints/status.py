@@ -11,7 +11,6 @@ from fastapi.responses import PlainTextResponse
 import structlog
 
 from ...core.config import get_settings
-from ...services.kvk_service import KvKService
 from ...services.legal_service import LegalService
 from ...services.news_service import NewsService
 from ...utils.rate_limiter import get_rate_limiter
@@ -27,7 +26,6 @@ _metrics = {
     "requests_error": 0,
     "response_times": [],
     "external_api_calls": {
-        "kvk": {"total": 0, "success": 0, "error": 0},
         "legal": {"total": 0, "success": 0, "error": 0},
         "news": {"total": 0, "success": 0, "error": 0}
     },
@@ -175,13 +173,8 @@ async def health_check() -> Dict[str, str]:
         # Perform basic health checks
         settings = get_settings()
         
-        # Check if we can create services (basic dependency check)
-        try:
-            kvk_service = KvKService()
-            health_status = "healthy"
-        except Exception as e:
-            logger.warning("Health check failed", error=str(e))
-            health_status = "degraded"
+        # Basic service health check
+        health_status = "healthy"
         
         return {
             "status": health_status,
@@ -295,30 +288,6 @@ async def get_metrics() -> str:
 async def _check_external_services() -> Dict[str, Dict[str, Any]]:
     """Check the health of external services."""
     services = {}
-    
-    # KvK API health check
-    try:
-        kvk_service = KvKService()
-        # Try a simple health check (this might need to be implemented in KvKService)
-        kvk_stats = _metrics["external_api_calls"]["kvk"]
-        success_rate = (
-            kvk_stats["success"] / kvk_stats["total"] * 100 
-            if kvk_stats["total"] > 0 else 100.0
-        )
-        
-        services["kvk_api"] = {
-            "status": "healthy" if success_rate > 80 else "degraded",
-            "success_rate_percent": round(success_rate, 2),
-            "total_calls": kvk_stats["total"],
-            "last_check": datetime.utcnow().isoformat()
-        }
-        
-    except Exception as e:
-        services["kvk_api"] = {
-            "status": "unavailable", 
-            "error": str(e),
-            "last_check": datetime.utcnow().isoformat()
-        }
     
     # Legal service health check
     try:

@@ -5,7 +5,19 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="59eb0dbb-1be2-4d55-9154-18e0dff89e0e" name="Changes" comment="initial commit">
+      <change afterPath="$PROJECT_DIR$/docs/verbeterde-workflow.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/endpoints/analyze.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/endpoints/analyze.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/endpoints/status.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/endpoints/status.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/core/exceptions.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/exceptions.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/kvk_service.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/openai_functions.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/utils/content_filter.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/utils/text_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/utils/text_utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/utils/validators.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/utils/validators.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/utils/web_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/utils/web_utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_services/test_kvk_service.py" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

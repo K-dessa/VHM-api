@@ -31,8 +31,6 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = Field(default_factory=list)
     
     # External API settings
-    KVK_API_KEY: Optional[str] = config("KVK_API_KEY", default=None)
-    KVK_BASE_URL: str = config("KVK_BASE_URL", default="https://api.kvk.nl/api/v1/")
     OPENAI_API_KEY: Optional[str] = config("OPENAI_API_KEY", default=None)
     OPENAI_MODEL: str = config("OPENAI_MODEL", default="gpt-4-turbo")
     OPENAI_MAX_TOKENS: int = config("OPENAI_MAX_TOKENS", default=4000, cast=int)
@@ -49,7 +47,6 @@ class Settings(BaseSettings):
     RATE_LIMIT_WINDOW: int = config("RATE_LIMIT_WINDOW", default=3600, cast=int)
     
     # Timeout settings (environment-specific)
-    KVK_TIMEOUT: int = config("KVK_TIMEOUT", default=10, cast=int)
     RECHTSPRAAK_TIMEOUT: int = config("RECHTSPRAAK_TIMEOUT", default=10, cast=int)
     OPENAI_TIMEOUT: int = config("OPENAI_TIMEOUT", default=30, cast=int)
     ANALYSIS_TIMEOUT_STANDARD: int = config("ANALYSIS_TIMEOUT_STANDARD", default=30, cast=int)
@@ -78,7 +75,6 @@ class Settings(BaseSettings):
     
     # Cost tracking
     DAILY_COST_BUDGET_EUR: float = config("DAILY_COST_BUDGET_EUR", default=100.0, cast=float)
-    KVK_COST_PER_REQUEST: float = config("KVK_COST_PER_REQUEST", default=0.01, cast=float)
     OPENAI_COST_PER_1K_TOKENS: float = config("OPENAI_COST_PER_1K_TOKENS", default=0.03, cast=float)
     
     # Search depth parameters
@@ -110,15 +106,6 @@ class Settings(BaseSettings):
         if v.upper() not in valid_levels:
             raise ValueError(f"Log level must be one of {valid_levels}")
         return v.upper()
-    
-    @validator("KVK_API_KEY")
-    def validate_kvk_api_key(cls, v):
-        """Validate KvK API key format."""
-        # Allow dummy keys for testing
-        dummy_keys = ["your_kvk_api_key_here", "dummy_kvk_key_for_testing"]
-        if v and v not in dummy_keys and not re.match(r'^[a-zA-Z0-9\-_]{32,}$', v):
-            raise ValueError("KvK API key format appears invalid")
-        return v
     
     @validator("OPENAI_API_KEY")
     def validate_openai_api_key(cls, v):

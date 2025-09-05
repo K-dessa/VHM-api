@@ -31,17 +31,6 @@ class ExternalAPIError(BusinessAnalysisError):
         super().__init__(message, error_code)
 
 
-class KvKAPIError(ExternalAPIError):
-    """Raised when KvK API returns an error."""
-
-    def __init__(
-        self,
-        message: str,
-        status_code: Optional[int] = None,
-        error_code: Optional[str] = None,
-    ):
-        super().__init__(message, "KvK API", status_code, error_code)
-
 
 class LegalAPIError(ExternalAPIError):
     """Raised when legal service (rechtspraak.nl) returns an error."""
@@ -76,14 +65,6 @@ class RateLimitError(BusinessAnalysisError):
         self.retry_after = retry_after
         super().__init__(message)
 
-
-class CompanyNotFoundError(BusinessAnalysisError):
-    """Raised when a company is not found."""
-
-    def __init__(self, kvk_number: str):
-        message = f"Company with KvK number {kvk_number} not found"
-        super().__init__(message)
-        self.kvk_number = kvk_number
 
 
 class TimeoutError(BusinessAnalysisError):
