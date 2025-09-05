@@ -42,6 +42,7 @@ services:
       
       # Crawl4AI configuration
       - CRAWL4_AI_BASE_DIRECTORY=/app/data/crawl4ai
+      - HOME=/app
       
       # Monitoring
       - HEALTH_CHECK_INTERVAL=60
