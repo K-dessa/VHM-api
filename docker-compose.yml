@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  bedrijfsanalyse-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bedrijfsanalyse-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      - APP_NAME=bedrijfsanalyse-api
+      - APP_VERSION=1.0.0
+      
+      # External API Keys (set in .env file)
+      - KVK_API_KEY=${KVK_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      
+      # Authentication
+      - API_KEYS=${API_KEYS:-dev-api-key-123456789012345678901234567890}
+      
+      # Rate limiting
+      - RATE_LIMIT_REQUESTS=200
+      - RATE_LIMIT_WINDOW=3600
+      
+      # Timeouts
+      - KVK_TIMEOUT=10
+      - RECHTSPRAAK_TIMEOUT=10
+      - OPENAI_TIMEOUT=30
+      - ANALYSIS_TIMEOUT_STANDARD=30
+      - ANALYSIS_TIMEOUT_DEEP=60
+      
+      # Feature flags
+      - ENABLE_LEGAL_SERVICE=true
+      - ENABLE_NEWS_SERVICE=true
+      - ENABLE_METRICS_COLLECTION=true
+      - ENABLE_TRACING=true
+      - ENABLE_ALERTING=false
+      
+      # Monitoring
+      - HEALTH_CHECK_INTERVAL=60
+      - PROMETHEUS_METRICS_ENABLED=true
+      
+      # Cost tracking
+      - DAILY_COST_BUDGET_EUR=50.0
+      - KVK_COST_PER_REQUEST=0.01
+      - OPENAI_COST_PER_1K_TOKENS=0.03
+      
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    networks:
+      - bedrijfsanalyse-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Optional Redis for caching (uncomment if needed)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: bedrijfsanalyse-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   networks:
+  #     - bedrijfsanalyse-network
+  #   restart: unless-stopped
+  #   command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  # Optional Prometheus for metrics (uncomment if needed)
+  # prometheus:
+  #   image: prom/prometheus:v2.40.0
+  #   container_name: bedrijfsanalyse-prometheus
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+  #     - prometheus_data:/prometheus
+  #   networks:
+  #     - bedrijfsanalyse-network
+  #   restart: unless-stopped
+  #   command:
+  #     - '--config.file=/etc/prometheus/prometheus.yml'
+  #     - '--storage.tsdb.path=/prometheus'
+  #     - '--web.console.libraries=/etc/prometheus/console_libraries'
+  #     - '--web.console.templates=/etc/prometheus/consoles'
+  #     - '--storage.tsdb.retention.time=200h'
+  #     - '--web.enable-lifecycle'
+
+networks:
+  bedrijfsanalyse-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local

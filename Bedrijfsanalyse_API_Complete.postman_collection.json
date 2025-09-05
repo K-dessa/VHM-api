@@ -1,0 +1,672 @@
+{
+	"info": {
+		"_postman_id": "bedrijfsanalyse-api-complete-v2",
+		"name": "Bedrijfsanalyse API - Complete Collection",
+		"description": "Comprehensive risk assessment and due diligence API for Dutch companies. Works with **company names** (KvK numbers optional) and integrates legal sources with AI-powered analysis.\n\n## Current Workflow Features:\n- **Name-Based Analysis**: Company analysis based on business name (KvK optional)\n- **Mandatory Legal Checks**: Always performs Rechtspraak.nl legal database search\n- **Dutch-Focused News**: Prioritizes Dutch news sources (FD, NRC, Volkskrant, NOS, BNR)\n- **Contact Person Integration**: Includes contact persons in search queries\n- **AI-Powered Analysis**: OpenAI GPT-4 powered sentiment analysis\n- **Multiple Endpoints**: Nederlandse analyse (recommended), simple analysis, legacy analysis\n\n## Main Endpoints:\n1. `/nederlands-bedrijf-analyse` - **RECOMMENDED**: Dutch-focused with mandatory legal checks\n2. `/analyze-company-simple` - Simplified structured output\n3. `/analyze-company` - Legacy comprehensive analysis\n\n## Authentication:\nAll requests require the X-API-Key header with a valid API key (minimum 32 characters).\n\n## Rate Limiting:\n100 requests per hour per API key by default.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health & Monitoring",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"health"
+							]
+						},
+						"description": "Basic health check and system status. Returns overall health status and external dependencies."
+					},
+					"response": []
+				},
+				{
+					"name": "Detailed Status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/status",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"status"
+							]
+						},
+						"description": "Detailed system metrics and statistics including performance data and service availability."
+					},
+					"response": []
+				},
+				{
+					"name": "Prometheus Metrics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/metrics",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"metrics"
+							]
+						},
+						"description": "Prometheus metrics endpoint for monitoring:\n- http_requests_total\n- http_request_duration_seconds\n- external_api_calls_total_*\n- process_memory_usage_bytes"
+					},
+					"response": []
+				},
+				{
+					"name": "API Documentation",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/docs",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"docs"
+							]
+						},
+						"description": "Interactive API documentation (Swagger UI)"
+					},
+					"response": []
+				}
+			],
+			"description": "Health checks, monitoring endpoints, and documentation"
+		},
+		{
+			"name": "Company Analysis - New Workflow",
+			"item": [
+				{
+					"name": "Nederlandse Bedrijfsanalyse - ASML",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"company_name\": \"ASML Holding N.V.\",\n    \"kvk_nummer\": \"17014545\",\n    \"contactpersoon\": \"Peter Wennink\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/nederlands-bedrijf-analyse",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"nederlands-bedrijf-analyse"
+							]
+						},
+						"description": "Nederlandse bedrijfsanalyse workflow (RECOMMENDED):\n1. **Verplichte Rechtspraak.nl controle** - altijd uitgevoerd\n2. **Nederlandse nieuwsbronnen prioriteit** - FD, NRC, Volkskrant, NOS, BNR\n3. **Contactpersoon integratie** - zoekt naar contactpersoon in alle bronnen\n4. **90 dagen lookback** - laatste 90 dagen voor nieuws\n5. **Gestructureerde output** - bullet points met bron en link"
+					},
+					"response": []
+				},
+				{
+					"name": "Nederlandse Bedrijfsanalyse - Philips",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"company_name\": \"Koninklijke Philips N.V.\",\n    \"kvk_nummer\": \"17001910\",\n    \"contactpersoon\": \"Roy Jakobs\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/nederlands-bedrijf-analyse",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"nederlands-bedrijf-analyse"
+							]
+						},
+						"description": "Nederlandse bedrijfsanalyse voor Philips met CEO Roy Jakobs als contactpersoon"
+					},
+					"response": []
+				},
+				{
+					"name": "Nederlandse Bedrijfsanalyse - ING",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"company_name\": \"ING Groep N.V.\",\n    \"contactpersoon\": \"Steven van Rijswijk\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/nederlands-bedrijf-analyse",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"nederlands-bedrijf-analyse"
+							]
+						},
+						"description": "Nederlandse bedrijfsanalyse voor ING Bank zonder KvK nummer (optioneel)"
+					},
+					"response": []
+				},
+				{
+					"name": "Simple Analysis - Philips",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"company_name\": \"Koninklijke Philips N.V.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/analyze-company-simple",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"analyze-company-simple"
+							]
+						},
+						"description": "New simplified workflow:\n1. Searches for positive and negative news via web search\n2. Always searches Rechtspraak API for legal cases\n3. Returns simplified JSON format with Dutch field names"
+					},
+					"response": []
+				},
+				{
+					"name": "Simple Analysis - ASML",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"company_name\": \"ASML Holding N.V.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/analyze-company-simple",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"analyze-company-simple"
+							]
+						},
+						"description": "Test with ASML as another example Dutch technology company"
+					},
+					"response": []
+				},
+				{
+					"name": "Simple Analysis - Shell",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"company_name\": \"Royal Dutch Shell plc\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/analyze-company-simple",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"analyze-company-simple"
+							]
+						},
+						"description": "Test with Shell as major energy company"
+					},
+					"response": []
+				},
+				{
+					"name": "Simple Analysis - ING Bank",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"company_name\": \"ING Groep N.V.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/analyze-company-simple",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"analyze-company-simple"
+							]
+						},
+						"description": "Test with ING Bank as financial sector example"
+					},
+					"response": []
+				}
+			],
+			"description": "New simplified workflow endpoints with web search and legal case lookup"
+		},
+		{
+			"name": "Company Analysis - Standard/Legacy",
+			"item": [
+				{
+					"name": "Standard Analysis - Company Name",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"company_name\": \"ASML Holding N.V.\",\n    \"kvk_nummer\": \"17014545\",\n    \"contactpersoon\": \"Peter Wennink\",\n    \"search_depth\": \"standard\",\n    \"news_date_range\": \"last_year\",\n    \"legal_date_range\": \"last_3_years\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/analyze-company",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"analyze-company"
+							]
+						},
+						"description": "Standard name-based company analysis with optional KvK number and contact person\n\nFeatures:\n- Company name as primary input\n- Optional KvK number validation\n- Contact person integration\n- Comprehensive response format"
+					},
+					"response": []
+				},
+				{
+					"name": "Basic Analysis - Standard Depth",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"kvk_number\": \"69599084\",\n    \"search_depth\": \"standard\",\n    \"date_range\": \"6m\",\n    \"include_positive\": true,\n    \"include_negative\": true,\n    \"language\": \"nl\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/analyze-company",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"analyze-company"
+							]
+						},
+						"description": "Basic company analysis with standard search depth (< 30 seconds response time)\n\nExample KvK numbers:\n- 69599084 (Example company)\n- 27312152 (ASML)\n- 24264229 (Philips)"
+					},
+					"response": []
+				},
+				{
+					"name": "Deep Analysis - Extended Search",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"kvk_number\": \"69599084\",\n    \"search_depth\": \"deep\",\n    \"date_range\": \"1y\",\n    \"include_subsidiaries\": true,\n    \"include_positive\": true,\n    \"include_negative\": true,\n    \"language\": \"nl\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/analyze-company",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"analyze-company"
+							]
+						},
+						"description": "Deep analysis with extended search (< 60 seconds response time)\nIncludes more comprehensive data collection and subsidiary analysis."
+					},
+					"response": []
+				},
+				{
+					"name": "Analysis by Company Name",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"company_name\": \"ASML Holding N.V.\",\n    \"search_depth\": \"standard\",\n    \"date_range\": \"6m\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/analyze-company",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"analyze-company"
+							]
+						},
+						"description": "Analysis using company name instead of KvK number (legacy endpoint)"
+					},
+					"response": []
+				}
+			],
+			"description": "Standard comprehensive analysis endpoints - now name-based with optional KvK numbers and detailed parameters"
+		},
+		{
+			"name": "Error Handling & Edge Cases",
+			"item": [
+				{
+					"name": "Invalid API Key",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "invalid-key",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"company_name\": \"Test Company\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/analyze-company-simple",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"analyze-company-simple"
+							]
+						},
+						"description": "Test authentication error handling - should return 401 Unauthorized"
+					},
+					"response": []
+				},
+				{
+					"name": "Invalid Company Name (Too Short)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"company_name\": \"X\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/analyze-company-simple",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"analyze-company-simple"
+							]
+						},
+						"description": "Test validation error - company name too short (< 2 characters)"
+					},
+					"response": []
+				},
+				{
+					"name": "Rate Limit Test",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-API-Key",
+								"value": "{{api_key}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"health"
+							]
+						},
+						"description": "Test rate limiting - run this multiple times quickly to test 100 requests/hour limit"
+					},
+					"response": []
+				}
+			],
+			"description": "Error handling, validation, and edge case testing"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Set dynamic timestamp for requests",
+					"pm.environment.set('timestamp', Date.now());"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Common test assertions",
+					"pm.test('Response time is reasonable', function () {",
+					"    if (pm.request.url.path.includes('health') || pm.request.url.path.includes('status')) {",
+					"        pm.expect(pm.response.responseTime).to.be.below(5000);",
+					"    }",
+					"});",
+					"",
+					"pm.test('Status code is valid', function () {",
+					"    pm.expect([200, 400, 401, 404, 429, 500]).to.include(pm.response.code);",
+					"});"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "default"
+		},
+		{
+			"key": "api_key",
+			"value": "test-key",
+			"type": "default"
+		}
+	]
+}
