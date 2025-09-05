@@ -28,6 +28,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Application stage  
 FROM base as application
 
+# Set Crawl4AI environment variables
+ENV CRAWL4_AI_BASE_DIRECTORY=/app/data/crawl4ai
+ENV HOME=/app
+
 WORKDIR /app
 
 # Copy Python dependencies from dependencies stage
