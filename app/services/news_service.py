@@ -1,15 +1,15 @@
 import hashlib
 import json
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote_plus, urlparse
 
 import httpx
 import structlog
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
-
-# We'll implement web search directly in this service
 
 from app.core.config import settings
 from app.models.response_models import NewsAnalysis, NewsArticle, NewsItem, PositiveNews, NegativeNews
@@ -17,244 +17,301 @@ from app.models.response_models import NewsAnalysis, NewsArticle, NewsItem, Posi
 logger = structlog.get_logger()
 
 
-class WebSearch:
-    """Production-ready web search using NewsAPI.org for real articles."""
+class RSSNewsSearch:
+    """RSS-based news search using Google News RSS feeds as specified in improved workflow."""
     
     def __init__(self):
         self.timeout = 10
-        self.user_agent = "Mozilla/5.0 (compatible; NewsAnalyzer/1.0)"
-        self.news_api_key = settings.NEWS_API_KEY
-        self.base_url = "https://newsapi.org/v2"
-        self.google_api_key = settings.GOOGLE_SEARCH_API_KEY
-        self.google_engine_id = settings.GOOGLE_SEARCH_ENGINE_ID
+        self.user_agent = "Mozilla/5.0 (compatible; BedrijfsanalyseBot/1.0)"
+        self.base_url = "https://news.google.com/rss/search"
+        
+        # Paywall sources to filter out (as per workflow specification)
+        self.paywall_sources = {
+            'nrc.nl', 'fd.nl', 'volkskrant.nl', 'telegraaf.nl'
+        }
+        
+        # Dutch news sources whitelist for Dutch analysis
+        self.dutch_whitelist = {
+            'nos.nl', 'nu.nl', 'rtlz.nl', 'bnr.nl', 'ad.nl'
+        }
     
-    async def search_news(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+    async def search_news(self, company_name: str, max_results: int = 10, dutch_focus: bool = False, simple_mode: bool = False) -> List[Dict[str, Any]]:
         """
-        Search for real news articles using NewsAPI.org.
+        Search for news articles using Google News RSS feeds as per improved workflow.
         Returns list of article dictionaries with title, url, source, date, content.
+        
+        Args:
+            company_name: Name of the company to search for
+            max_results: Maximum number of results to return
+            dutch_focus: Focus on Dutch sources and filter paywall sources
+            simple_mode: Use simplified search for faster results
         """
         try:
-            # Extract company name for targeted search
-            company_terms = self._extract_company_terms(query)
+            logger.info(f"Starting RSS news search for: {company_name} (dutch_focus: {dutch_focus}, simple_mode: {simple_mode})")
             
-            # Determine search sentiment
-            is_positive = any(term in query.lower() for term in ['positive', 'success', 'achievement', 'growth', 'expansion', 'award'])
-            is_negative = any(term in query.lower() for term in ['negative', 'problems', 'lawsuit', 'scandal', 'investigation', 'crisis'])
+            # Build RSS feed URL
+            rss_url = await self._build_rss_url(company_name, dutch_focus)
             
-            # Build search query for NewsAPI
-            search_query = company_terms
-            if is_positive:
-                search_query += " AND (success OR growth OR award OR achievement OR expansion)"
-            elif is_negative:
-                search_query += " AND (lawsuit OR scandal OR investigation OR problems OR crisis)"
+            # Fetch RSS feed
+            rss_articles = await self._fetch_rss_feed(rss_url, max_results if simple_mode else max_results * 2)
             
-            # ONLY use Google Custom Search - no more fallbacks with fake links
-            if self.google_api_key and self.google_engine_id:
-                articles = await self._search_google_custom(search_query, max_results)
-                # Validate all links are working before returning
-                validated_articles = await self._validate_article_links(articles)
-                return validated_articles
+            # Filter paywall sources if needed
+            if dutch_focus:
+                rss_articles = self._filter_paywall_sources(rss_articles)
+                # Apply Dutch whitelist if specified
+                rss_articles = self._apply_dutch_whitelist(rss_articles)
             
-            # If Google Search is not configured, return empty results
-            logger.error("Google Custom Search API niet geconfigureerd - geen zoekresultaten beschikbaar")
-            return []
+            # Limit results
+            rss_articles = rss_articles[:max_results]
+            
+            # Optionally crawl open articles for content (as per workflow)
+            if not simple_mode and rss_articles:
+                rss_articles = await self._crawl_open_articles(rss_articles)
+            
+            logger.info(f"RSS search completed: found {len(rss_articles)} articles")
+            return rss_articles
             
         except Exception as e:
-            logger.error(f"Web search failed: {e}")
+            logger.error(f"RSS news search failed: {e}")
             return []
     
-    async def _search_google_custom(self, query: str, max_results: int) -> List[Dict[str, Any]]:
-        """Search using Google Custom Search API for real articles."""
-        try:
-            url = "https://www.googleapis.com/customsearch/v1"
-            params = {
-                "key": self.google_api_key,
-                "cx": self.google_engine_id,
-                "q": query,
-                "num": min(max_results, 10),  # Google allows max 10 results per request
-                "sort": "date",
-                "fileType": "",  # Exclude non-web results
-                "siteSearch": "",  # Can be used to search specific sites
-            }
-            
-            # Add Dutch news sites for priority
-            dutch_news_sites = "site:fd.nl OR site:nrc.nl OR site:nos.nl OR site:volkskrant.nl OR site:bnr.nl OR site:ad.nl OR site:telegraaf.nl"
-            params["q"] = f"{query} ({dutch_news_sites})"
-            
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url, params=params)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    articles = []
-                    
-                    for item in data.get("items", []):
-                        if item.get("link") and item.get("title"):
-                            # Extract snippet as content
-                            content = item.get("snippet", "")
-                            
-                            # Try to extract date from meta tags or snippet
-                            published_date = "2024-01-01"  # Default
-                            if "metatags" in item.get("pagemap", {}):
-                                for meta in item["pagemap"]["metatags"]:
-                                    if "article:published_time" in meta:
-                                        published_date = meta["article:published_time"][:10]
-                                        break
-                                    elif "date" in meta:
-                                        published_date = meta["date"][:10]
-                                        break
-                            
-                            # Extract source from URL
-                            import urllib.parse
-                            parsed_url = urllib.parse.urlparse(item["link"])
-                            source = parsed_url.netloc.replace("www.", "")
-                            
-                            articles.append({
-                                "title": item["title"],
-                                "url": item["link"],
-                                "source": source,
-                                "date": published_date,
-                                "content": content
-                            })
-                    
-                    logger.info(f"Google Custom Search found {len(articles)} articles")
-                    return articles[:max_results]
-                else:
-                    logger.warning(f"Google Custom Search API error: {response.status_code}")
-                    
-        except Exception as e:
-            logger.warning(f"Google Custom Search failed: {e}")
-            return []
-
-    async def _search_newsapi(self, query: str, max_results: int) -> List[Dict[str, Any]]:
-        """Search using NewsAPI.org for real articles."""
-        try:
-            url = f"{self.base_url}/everything"
-            params = {
-                "q": query,
-                "apiKey": self.news_api_key,
-                "language": "en",
-                "sortBy": "relevancy",
-                "pageSize": min(max_results, 100),
-                "excludeDomains": "reddit.com,twitter.com"
-            }
-            
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url, params=params)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    articles = []
-                    
-                    for article in data.get("articles", []):
-                        if article.get("url") and article.get("title"):
-                            articles.append({
-                                "title": article["title"],
-                                "url": article["url"],
-                                "source": article.get("source", {}).get("name", "Unknown"),
-                                "date": article.get("publishedAt", "2024-01-01")[:10],
-                                "content": article.get("description") or article.get("content", "")[:500]
-                            })
-                    
-                    return articles[:max_results]
-                    
-        except Exception as e:
-            logger.warning(f"NewsAPI search failed: {e}")
-            return []
+    async def _build_rss_url(self, company_name: str, dutch_focus: bool = False) -> str:
+        """
+        Build Google News RSS feed URL as per workflow specification.
+        Format: https://news.google.com/rss/search?q="<BEDRIJFSNAAM>"&hl=nl&gl=NL&ceid=NL:nl
+        """
+        # Encode company name for URL
+        encoded_company = quote_plus(f'"{company_name}"')
+        
+        # Base RSS URL with Dutch locale settings
+        base_url = f"{self.base_url}?q={encoded_company}&hl=nl&gl=NL&ceid=NL:nl"
+        
+        logger.info(f"Built RSS URL: {base_url}")
+        return base_url
     
-    async def _validate_article_links(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Validate that all article links are working and fetch full content."""
-        validated_articles = []
-        
-        for article in articles:
-            url = article.get('url')
-            if not url:
-                continue
-                
-            try:
-                # Fetch full article content
-                full_content = await self._fetch_article_content(url)
-                if full_content:
-                    # Update article with full content
-                    article['content'] = full_content
-                    validated_articles.append(article)
-                    logger.info(f"Successfully fetched content from: {url}")
-                else:
-                    logger.warning(f"Could not fetch content from: {url}")
-                        
-            except Exception as e:
-                logger.warning(f"Link validation failed for {url}: {e}")
-        
-        logger.info(f"Successfully fetched content from {len(validated_articles)} out of {len(articles)} articles")
-        return validated_articles
-
-    async def _fetch_article_content(self, url: str) -> str:
-        """Fetch and extract the main content from an article URL."""
+    async def _fetch_rss_feed(self, rss_url: str, max_items: int = 20) -> List[Dict[str, Any]]:
+        """
+        Fetch and parse RSS feed from Google News.
+        """
         try:
             async with httpx.AsyncClient(
-                timeout=10,
-                follow_redirects=True,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-                }
+                timeout=self.timeout,
+                headers={"User-Agent": self.user_agent}
             ) as client:
-                response = await client.get(url)
+                response = await client.get(rss_url)
                 
                 if response.status_code != 200:
-                    return ""
+                    logger.warning(f"RSS feed fetch failed: {response.status_code}")
+                    return []
                 
-                # Parse HTML content
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(response.text, 'html.parser')
+                # Parse RSS XML
+                root = ET.fromstring(response.text)
+                articles = []
                 
-                # Remove script and style elements
-                for script in soup(["script", "style", "nav", "header", "footer", "aside", "form"]):
-                    script.decompose()
+                # Find all item elements in the RSS feed
+                for item in root.findall('.//item')[:max_items]:
+                    title_elem = item.find('title')
+                    link_elem = item.find('link')
+                    pub_date_elem = item.find('pubDate')
+                    description_elem = item.find('description')
+                    
+                    if title_elem is not None and link_elem is not None:
+                        # Extract source from link
+                        source = self._extract_source_from_url(link_elem.text or "")
+                        
+                        # Parse publication date
+                        pub_date = self._parse_rss_date(pub_date_elem.text if pub_date_elem is not None else "")
+                        
+                        article = {
+                            'title': title_elem.text or "",
+                            'url': link_elem.text or "",
+                            'source': source,
+                            'date': pub_date,
+                            'content': description_elem.text or "" if description_elem is not None else ""
+                        }
+                        
+                        articles.append(article)
                 
-                # Try to find main content in common article selectors
-                content_selectors = [
-                    'article',
-                    '.article-content',
-                    '.article-body', 
-                    '.content',
-                    '.post-content',
-                    '[role="main"]',
-                    'main',
-                    '.story-content',
-                    '.entry-content'
-                ]
+                logger.info(f"Fetched {len(articles)} articles from RSS feed")
+                return articles
                 
-                content_text = ""
-                for selector in content_selectors:
-                    content_element = soup.select_one(selector)
-                    if content_element:
-                        content_text = content_element.get_text(separator=' ', strip=True)
-                        break
-                
-                # If no specific content area found, get text from body
-                if not content_text:
-                    content_text = soup.get_text(separator=' ', strip=True)
-                
-                # Clean up and limit content length
-                content_text = ' '.join(content_text.split())  # Remove extra whitespace
-                
-                # Limit to reasonable length for OpenAI processing (approximately 3000 words)
-                if len(content_text) > 12000:
-                    content_text = content_text[:12000] + "..."
-                
-                return content_text
-                
+        except ET.ParseError as e:
+            logger.error(f"RSS XML parsing error: {e}")
+            return []
         except Exception as e:
-            logger.error(f"Failed to fetch content from {url}: {e}")
-            return ""
+            logger.error(f"RSS feed fetch error: {e}")
+            return []
+    
+    def _extract_source_from_url(self, url: str) -> str:
+        """Extract source domain from URL."""
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc.lower()
+            # Remove www. prefix
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            return domain
+        except:
+            return "unknown"
+    
+    def _parse_rss_date(self, date_str: str) -> datetime:
+        """Parse RSS date string to datetime object."""
+        try:
+            # RSS dates are typically in RFC 2822 format
+            # Example: "Wed, 02 Oct 2002 08:00:00 EST"
+            from email.utils import parsedate_to_datetime
+            return parsedate_to_datetime(date_str)
+        except:
+            # Fallback to current time
+            return datetime.now()
+    
+    def _filter_paywall_sources(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Filter out paywall sources as specified in the workflow:
+        Remove NRC, FD, Volkskrant, Telegraaf.
+        """
+        filtered = []
+        removed_count = 0
+        
+        for article in articles:
+            source = article.get('source', '').lower()
+            
+            # Check if source is in paywall list
+            is_paywall = any(paywall in source for paywall in self.paywall_sources)
+            
+            if not is_paywall:
+                filtered.append(article)
+            else:
+                removed_count += 1
+                logger.debug(f"Filtered out paywall source: {source}")
+        
+        logger.info(f"Paywall filtering: kept {len(filtered)}, removed {removed_count} articles")
+        return filtered
+    
+    def _apply_dutch_whitelist(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Apply Dutch news sources whitelist: NOS, NU.nl, RTL Z, BNR, AD.
+        """
+        whitelisted = []
+        other_sources = []
+        
+        for article in articles:
+            source = article.get('source', '').lower()
+            
+            # Check if source is in whitelist
+            is_whitelisted = any(trusted in source for trusted in self.dutch_whitelist)
+            
+            if is_whitelisted:
+                whitelisted.append(article)
+            else:
+                other_sources.append(article)
+        
+        # Prioritize whitelisted sources but include others if needed
+        result = whitelisted + other_sources
+        
+        logger.info(f"Dutch whitelist: prioritized {len(whitelisted)} whitelisted, {len(other_sources)} other sources")
+        return result
+
+    async def _crawl_open_articles(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Optionally crawl open articles with Crawl4AI as specified in workflow.
+        This attempts to get full content from freely accessible articles.
+        """
+        try:
+            # Import Crawl4AI here to avoid dependency issues if not installed
+            from crawl4ai import AsyncWebCrawler
+            
+            enhanced_articles = []
+            crawl_count = 0
+            max_crawls = min(5, len(articles))  # Limit crawling for performance
+            
+            async with AsyncWebCrawler(
+                headless=True,
+                verbose=False,
+                user_agent=self.user_agent
+            ) as crawler:
+                for article in articles:
+                    if crawl_count >= max_crawls:
+                        # Add remaining articles without crawling
+                        enhanced_articles.append(article)
+                        continue
+                    
+                    url = article.get('url', '')
+                    if not url:
+                        enhanced_articles.append(article)
+                        continue
+                    
+                    try:
+                        # Attempt to crawl the article
+                        result = await crawler.arun(
+                            url=url,
+                            word_count_threshold=50,
+                            bypass_cache=True,
+                            timeout=10,
+                            magic=True,
+                            markdown=True
+                        )
+                        
+                        if result.success and result.markdown:
+                            # Update article with crawled content
+                            article['content'] = result.markdown[:3000]  # Limit length
+                            logger.debug(f"Successfully crawled content from: {url}")
+                        else:
+                            logger.debug(f"Failed to crawl content from: {url}")
+                        
+                        enhanced_articles.append(article)
+                        crawl_count += 1
+                        
+                    except Exception as e:
+                        logger.warning(f"Crawling failed for {url}: {e}")
+                        enhanced_articles.append(article)
+            
+            logger.info(f"Content crawling: enhanced {crawl_count} out of {len(articles)} articles")
+            return enhanced_articles
+            
+        except ImportError:
+            logger.warning("Crawl4AI not available, skipping content crawling")
+            return articles
+        except Exception as e:
+            logger.error(f"Content crawling error: {e}")
+            return articles
+    
+    async def search_news_simple(self, company_name: str, max_results: int = 10) -> List[Dict[str, Any]]:
+        """
+        Simple RSS news search for the simple analysis endpoint.
+        Uses max 10 items and fast fetch as specified in workflow.
+        """
+        return await self.search_news(
+            company_name=company_name,
+            max_results=max_results,
+            dutch_focus=False,
+            simple_mode=True
+        )
     
     
-    def _extract_company_terms(self, query: str) -> str:
-        """Extract main company terms from search query."""
-        terms = query.split()
-        stopwords = {'news', 'positive', 'negative', 'success', 'problems', 'lawsuit', 'scandal', 'investigation', 'achievements', 'growth', 'expansion'}
-        company_terms = ' '.join([term for term in terms if term.lower() not in stopwords])
-        return company_terms or "Company"
+    def _extract_company_name(self, search_query: str) -> str:
+        """Extract company name from search query, removing sentiment keywords."""
+        # Remove common search modifiers to get clean company name
+        stopwords = {
+            'news', 'positive', 'negative', 'success', 'problems', 'lawsuit', 
+            'scandal', 'investigation', 'achievements', 'growth', 'expansion',
+            'and', 'or', '(', ')', 'award', 'achievement', 'recognition',
+            'controversy', 'fine', 'penalty'
+        }
+        
+        # Split and clean
+        terms = search_query.lower().split()
+        clean_terms = []
+        
+        for term in terms:
+            # Remove punctuation and check against stopwords
+            clean_term = term.strip('()\"\'.,!')
+            if clean_term not in stopwords and len(clean_term) > 2:
+                clean_terms.append(clean_term)
+        
+        # Reconstruct company name
+        company_name = ' '.join(clean_terms)
+        return company_name or "company"
 
 
 class NewsService:
@@ -280,14 +337,111 @@ class NewsService:
         # Simple in-memory cache
         self.cache = {}
         
-        # Initialize web search
-        self.web_search = WebSearch()
+        # Initialize RSS news search
+        self.rss_search = RSSNewsSearch()
         self.cache_ttl = {}
         
         # Cost tracking
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.total_requests = 0
+
+    async def search_dutch_company_news(
+        self, company_name: str, search_params: Dict[str, Any], contact_person: str = None
+    ) -> NewsAnalysis:
+        """
+        Search and analyze Dutch news about a company using RSS feeds with Dutch focus.
+        Uses Dutch news sources whitelist and filters paywall sources as per workflow.
+        """
+        logger.info("Starting Dutch RSS news search", company=company_name, params=search_params)
+        
+        try:
+            # Generate cache key including contact person and Dutch focus
+            cache_key = self._generate_cache_key(f"dutch_{company_name}", search_params, contact_person)
+            
+            # Check cache first
+            cached_result = self._get_cached_result(cache_key)
+            if cached_result:
+                logger.info("Returning cached Dutch result", company=company_name)
+                return NewsAnalysis.model_validate(cached_result)
+            
+            # Perform Dutch-focused RSS news search
+            search_results = await self._perform_dutch_rss_search(company_name, search_params, contact_person)
+            
+            # Analyze sentiment and relevance for each article
+            analyzed_articles = []
+            for article in search_results:
+                analyzed_article = await self._analyze_article(article, company_name)
+                if analyzed_article:
+                    analyzed_articles.append(analyzed_article)
+            
+            # Filter by relevance threshold (more inclusive for Dutch sources)
+            relevant_articles = [
+                article for article in analyzed_articles
+                if article.relevance_score >= 0.3  # Lower threshold for Dutch sources
+            ]
+            
+            # Generate overall analysis
+            news_analysis = await self._generate_overall_analysis(
+                company_name, relevant_articles
+            )
+            
+            # Cache the result
+            self._cache_result(cache_key, news_analysis.model_dump(), ttl_hours=6)
+            
+            logger.info(
+                "Dutch news search completed",
+                company=company_name,
+                total_found=len(search_results),
+                relevant=len(relevant_articles)
+            )
+            
+            return news_analysis
+            
+        except Exception as e:
+            logger.error("Dutch news search failed", company=company_name, error=str(e), exc_info=True)
+            return self._create_empty_analysis(company_name)
+
+    async def search_company_news_simple(
+        self, company_name: str, max_results: int = 10
+    ) -> NewsAnalysis:
+        """
+        Simple news search for the simple analysis endpoint.
+        Uses RSS feeds with max 10 items for fast results as per workflow.
+        """
+        logger.info("Starting simple RSS news search", company=company_name)
+        
+        try:
+            # Use simple RSS search (no crawling, fast fetch)
+            articles = await self.rss_search.search_news_simple(
+                company_name=company_name,
+                max_results=max_results
+            )
+            
+            # Quick analysis without deep content processing
+            analyzed_articles = []
+            for article in articles[:max_results]:  # Limit processing
+                analyzed_article = await self._analyze_article(article, company_name)
+                if analyzed_article and analyzed_article.relevance_score >= 0.2:  # Very inclusive for simple mode
+                    analyzed_articles.append(analyzed_article)
+            
+            # Generate lightweight analysis
+            news_analysis = await self._generate_overall_analysis(
+                company_name, analyzed_articles
+            )
+            
+            logger.info(
+                "Simple news search completed",
+                company=company_name,
+                articles_found=len(articles),
+                analyzed=len(analyzed_articles)
+            )
+            
+            return news_analysis
+            
+        except Exception as e:
+            logger.error("Simple news search failed", company=company_name, error=str(e))
+            return self._create_empty_analysis(company_name)
 
     async def search_company_news(
         self, company_name: str, search_params: Dict[str, Any], contact_person: str = None
@@ -315,8 +469,8 @@ class NewsService:
                 logger.info("Returning cached result", company=company_name)
                 return NewsAnalysis.model_validate(cached_result)
             
-            # Perform news search using OpenAI function calling
-            search_results = await self._perform_web_search(company_name, search_params, contact_person)
+            # Perform RSS news search
+            search_results = await self._perform_rss_search(company_name, search_params, contact_person)
             
             # Analyze sentiment and relevance for each article
             analyzed_articles = []
@@ -380,6 +534,55 @@ class NewsService:
                 risk_indicators=[],
                 summary="News analysis failed due to technical issues."
             )
+
+    async def _perform_rss_search(
+        self, company_name: str, search_params: Dict[str, Any], contact_person: str = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Perform RSS-based news search for standard analysis.
+        Uses RSS feeds without Dutch focus filtering.
+        """
+        try:
+            logger.info(f"Starting RSS search for: {company_name}")
+            
+            # Get articles using RSS (no Dutch focus for standard analysis)
+            articles = await self.rss_search.search_news(
+                company_name=company_name,
+                max_results=20,  # Get more for filtering
+                dutch_focus=False,  # No Dutch filtering for standard analysis
+                simple_mode=False  # Allow content crawling
+            )
+            
+            # Additional search with contact person if provided
+            if contact_person:
+                logger.info(f"Adding contact person search: {contact_person}")
+                
+                # Extract first and last name for flexible searching
+                names = contact_person.strip().split()
+                if len(names) >= 2:
+                    contact_query = f"{company_name} {names[0]} {names[-1]}"
+                else:
+                    contact_query = f"{company_name} {contact_person}"
+                
+                contact_articles = await self.rss_search.search_news(
+                    company_name=contact_query,
+                    max_results=10,
+                    dutch_focus=False,
+                    simple_mode=False
+                )
+                
+                # Merge results, avoiding duplicates
+                existing_urls = {article.get('url') for article in articles if article.get('url')}
+                for article in contact_articles:
+                    if article.get('url') not in existing_urls:
+                        articles.append(article)
+            
+            logger.info(f"RSS search completed: found {len(articles)} articles")
+            return articles
+            
+        except Exception as e:
+            logger.error(f"RSS search failed: {e}")
+            return []
 
     @retry(
         stop=stop_after_attempt(3),
@@ -450,6 +653,73 @@ class NewsService:
         
         return search_results
 
+    async def _perform_dutch_rss_search(
+        self, company_name: str, search_params: Dict[str, Any], contact_person: str = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Perform Dutch-focused RSS search using Google News RSS feeds.
+        Applies Dutch whitelist and filters paywall sources as per workflow.
+        """
+        try:
+            logger.info(f"Starting Dutch RSS search for: {company_name}")
+            
+            # Get articles using RSS with Dutch focus
+            articles = await self.rss_search.search_news(
+                company_name=company_name,
+                max_results=20,  # Get more for filtering
+                dutch_focus=True,  # Enable Dutch filtering and whitelist
+                simple_mode=False  # Allow content crawling
+            )
+            
+            # Additional search with contact person if provided
+            if contact_person:
+                logger.info(f"Adding contact person search: {contact_person}")
+                
+                # Extract first and last name for flexible searching
+                names = contact_person.strip().split()
+                if len(names) >= 2:
+                    contact_query = f"{company_name} {names[0]} {names[-1]}"
+                else:
+                    contact_query = f"{company_name} {contact_person}"
+                
+                contact_articles = await self.rss_search.search_news(
+                    company_name=contact_query,
+                    max_results=10,
+                    dutch_focus=True,
+                    simple_mode=False
+                )
+                
+                # Merge results, avoiding duplicates
+                existing_urls = {article.get('url') for article in articles if article.get('url')}
+                for article in contact_articles:
+                    if article.get('url') not in existing_urls:
+                        articles.append(article)
+            
+            logger.info(f"Dutch RSS search completed: found {len(articles)} articles")
+            return articles
+            
+        except Exception as e:
+            logger.error(f"Dutch RSS search failed: {e}")
+            return []
+
+    def _create_empty_analysis(self, company_name: str) -> NewsAnalysis:
+        """Create empty analysis for error cases."""
+        empty_positive = PositiveNews(count=0, average_sentiment=0.0, articles=[])
+        empty_negative = NegativeNews(count=0, average_sentiment=0.0, articles=[])
+        
+        return NewsAnalysis(
+            positive_news=empty_positive,
+            negative_news=empty_negative,
+            overall_sentiment=0.0,
+            sentiment_summary={"positive": 0, "neutral": 0, "negative": 0},
+            total_relevance=0.0,
+            total_articles_found=0,
+            articles=[],
+            key_topics=[],
+            risk_indicators=[],
+            summary=f"News analysis failed for {company_name} due to technical issues."
+        )
+
     def _generate_search_queries(
         self, company_name: str, date_range: str, include_positive: bool, include_negative: bool
     ) -> List[str]:
@@ -479,13 +749,16 @@ class NewsService:
         self, search_query: str, sentiment_hint: str, date_range: str
     ) -> List[Dict[str, Any]]:
         """
-        Use WebSearch to find actual news articles about the company.
+        Use RSS news search to find actual news articles about the company.
         """
         try:
-            logger.info(f"Searching web content for: {search_query}")
+            logger.info(f"Searching RSS content for: {search_query}")
             
-            # Use our WebSearch to get real articles
-            articles = await self.web_search.search_news(search_query, max_results=10)
+            # Extract company name from search query
+            company_name = self._extract_company_name(search_query)
+            
+            # Use RSS search to get articles
+            articles = await self.rss_search.search_news(company_name, max_results=10)
             
             # Convert date strings to datetime objects if needed
             for article in articles:

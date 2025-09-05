@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, validator
 class SearchDepth(str, Enum):
     """Enum for search depth options."""
 
+    SIMPLE = "simple"
     STANDARD = "standard"
     DEEP = "deep"
 
@@ -33,7 +34,7 @@ class CompanyAnalysisRequest(BaseModel):
     )
     kvk_nummer: Optional[str] = Field(
         None,
-        description="KVK nummer van het bedrijf (verplicht voor volledige analyse)",
+        description="KVK nummer van het bedrijf (optioneel - nieuwe workflow gebruikt webcrawling)",
         example="12345678",
         min_length=8,
         max_length=8
@@ -46,7 +47,7 @@ class CompanyAnalysisRequest(BaseModel):
     )
     search_depth: SearchDepth = Field(
         default=SearchDepth.STANDARD,
-        description="Depth of the analysis (standard < 30s, deep < 60s)",
+        description="Depth of the analysis (simple < 15s, standard < 30s, deep < 40s)",
     )
     news_date_range: DateRange = Field(
         default=DateRange.LAST_YEAR, description="Date range for news analysis"

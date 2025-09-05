@@ -11,6 +11,8 @@ from ...models.response_models import CompanyAnalysisResponse, RiskAssessment, R
 from ...services.legal_service import LegalService
 from ...services.news_service import NewsService
 from ...services.risk_service import RiskService
+from ...services.crawl_service import CrawlService
+from ...core.config import settings
 from ...api.dependencies import authenticated_with_rate_limit
 from ...core.exceptions import (
     TimeoutError, RateLimitError, ValidationError, BusinessAnalysisError
@@ -29,21 +31,23 @@ router = APIRouter()
     description="""
     Perform comprehensive risk assessment and due diligence analysis based on company name.
     
-    This endpoint integrates multiple data sources to provide a complete company analysis:
-    - **Legal risk assessment** from court case database analysis
+    This endpoint integrates multiple data sources using the improved workflow:
+    - **Web content analysis** using Crawl4AI for authentic company information
+    - **Legal risk assessment** from Rechtspraak.nl court case database
     - **News sentiment analysis** using AI-powered processing (OpenAI GPT-4)
-    - **Integrated risk scoring** combining all factors
+    - **Integrated risk scoring** combining all data sources
     
-    The analysis includes legal, operational, and reputational risk factors
+    The analysis includes web content, legal cases, news sentiment, and operational risk factors
     with actionable recommendations and monitoring suggestions.
     
     **Note**: This service requires an OpenAI API key to be configured.
     """,
     response_description="""
     Complete analysis results including:
-    - Company information from official sources
-    - Legal findings and risk assessment
+    - Company information from crawled website content
+    - Legal findings and risk assessment from Rechtspraak.nl
     - News analysis with sentiment scoring
+    - Web content analysis with business intelligence
     - Overall risk assessment with recommendations
     - Processing metadata and data quality indicators
     """,
@@ -145,9 +149,10 @@ async def analyze_company(
         for key, value in headers.items():
             response.headers[key] = value
         
-        # Initialize services (no KvK service needed)
+        # Initialize services for improved workflow
         legal_service = LegalService()
         risk_service = RiskService()
+        crawl_service = CrawlService()
         
         # Initialize news service if OpenAI API key is available
         news_service = None
@@ -155,15 +160,23 @@ async def analyze_company(
             news_service = NewsService()
         except ValueError as e:
             logger.warning("News service not available", error=str(e))
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="OpenAI API key not configured - news analysis service unavailable"
-            )
+            # Don't fail the entire analysis, just skip news analysis
+            news_service = None
         
         # Initialize legal service (robots.txt check)
         await legal_service.initialize()
         
-        # Create basic company info from the provided name
+        # Crawl company website for authentic business information
+        logger.info("Starting website crawl", company_name=request.company_name)
+        
+        web_content = await crawl_service.crawl_company_website(
+            company_name=request.company_name,
+            max_depth=2 if request.search_depth != "simple" else 1,
+            focus_dutch=True,
+            simple_mode=(request.search_depth == "simple")
+        )
+        
+        # Create company info based on crawled content
         company_info = CompanyInfo(
             name=request.company_name,
             trade_name=None,
@@ -171,19 +184,19 @@ async def analyze_company(
             establishment_date=None,
             address=None,
             sbi_codes=[],
-            business_activities=[],
+            business_activities=web_content.business_activities if web_content else [],
             employee_count=None,
-            website=None,
-            email=None,
-            phone=None,
-            status="Unknown"
+            website=web_content.website_url if web_content else None,
+            email=web_content.contact_info.get('email') if web_content else None,
+            phone=web_content.contact_info.get('phone') if web_content else None,
+            status="Active" if web_content else "Unknown"
         )
         
         # Fetch legal cases and news analysis in parallel
         logger.info("Fetching legal cases and news analysis", company_name=request.company_name)
         
         # Set timeout based on search depth
-        timeout_seconds = 30 if request.search_depth == "standard" else 60
+        timeout_seconds = settings.get_timeout_for_search_depth(request.search_depth)
         
         try:
             # Run legal and news services in parallel with timeout
@@ -254,16 +267,19 @@ async def analyze_company(
         
         # Build response
         data_sources = []
+        if web_content:
+            data_sources.append("Crawl4AI website analysis")
         if legal_findings:
             data_sources.append("Rechtspraak.nl (Dutch Legal Database)")
         if news_analysis:
             data_sources.append("AI-powered news analysis (OpenAI)")
         
-        # Add basic info source
-        data_sources.insert(0, "Company name search")
+        # Add fallback if no sources available
+        if not data_sources:
+            data_sources.append("Company name search")
         
         # Add risk assessment details to warnings
-        warnings = _get_analysis_warnings(company_info, request, legal_findings, news_analysis)
+        warnings = _get_analysis_warnings(company_info, request, legal_findings, news_analysis, web_content)
         warnings.extend(_get_risk_assessment_warnings(risk_assessment_obj))
         
         analysis_response = CompanyAnalysisResponse(
@@ -273,6 +289,7 @@ async def analyze_company(
             company_info=company_info,
             legal_findings=legal_findings,
             news_analysis=news_analysis,
+            web_content=web_content,
             risk_assessment=risk_assessment,
             warnings=warnings,
             data_sources=data_sources
@@ -285,9 +302,13 @@ async def analyze_company(
             risk_level=risk_assessment.overall_risk_level
         )
         
+        # Cleanup crawl service
+        await crawl_service.close()
+        
         return analysis_response
     
     except ValidationError as e:
+        await crawl_service.close()
         logger.warning("Validation error", error=str(e), request_id=request_id)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -295,6 +316,7 @@ async def analyze_company(
         )
     
     except TimeoutError as e:
+        await crawl_service.close()
         logger.error("Timeout error", error=str(e), request_id=request_id)
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -302,6 +324,7 @@ async def analyze_company(
         )
     
     except Exception as e:
+        await crawl_service.close()
         logger.error(
             "Unexpected error during analysis", 
             error=str(e),
@@ -322,11 +345,12 @@ async def analyze_company(
     Voer een Nederlandse bedrijfsanalyse uit volgens de nieuwe workflow specificatie.
     
     Deze endpoint implementeert de Nederlandse bedrijfsanalyse workflow:
-    1. **Verplichte Rechtspraak.nl controle** - Altijd uitgevoerd voor juridische zaken
-    2. **Nederlandse nieuwsbronnen prioriteit** - FD, NRC, Volkskrant, NOS, etc.
-    3. **Contactpersoon analyse** - Zoekt ook naar de opgegeven contactpersoon
-    4. **Gestructureerde output** - Bullet points met bron en link
-    5. **Neutrale samenvatting** - 2-3 zinnen zakelijke toon
+    1. **Nederlandse website crawling** - Focus op .nl domeinen en Nederlandse content
+    2. **Verplichte Rechtspraak.nl controle** - Altijd uitgevoerd voor juridische zaken
+    3. **Nederlandse nieuwsbronnen prioriteit** - FD, NRC, Volkskrant, NOS, etc.
+    4. **Contactpersoon analyse** - Zoekt ook naar de opgegeven contactpersoon
+    5. **Gestructureerde output** - Bullet points met bron en link
+    6. **Neutrale samenvatting** - 2-3 zinnen zakelijke toon
     
     **Belangrijke bronnen die altijd worden gecontroleerd:**
     - Rechtspraak.nl (verplicht voor juridische zaken)
@@ -382,6 +406,7 @@ async def nederlands_bedrijf_analyse(
         
         # Initialize services
         legal_service = LegalService()
+        crawl_service = CrawlService()
         news_service = None
         
         try:
@@ -395,6 +420,16 @@ async def nederlands_bedrijf_analyse(
         
         # Initialize legal service (robots.txt check but continue anyway)
         await legal_service.initialize()
+        
+        # Crawl Nederlandse website met focus op .nl domeinen
+        logger.info("Starting Dutch website crawl", company_name=request.company_name)
+        
+        web_content = await crawl_service.crawl_company_website(
+            company_name=request.company_name,
+            max_depth=2,  # Uitgebreider voor Nederlandse analyse
+            focus_dutch=True,  # Prioriteer .nl domeinen
+            simple_mode=False
+        )
         
         # Prepare search parameters for Nederlandse zoekopdracht
         search_params = {
@@ -422,9 +457,9 @@ async def nederlands_bedrijf_analyse(
         )
         tasks.append(legal_task)
         
-        # Nederlandse nieuwsanalyse taak
+        # Nederlandse nieuwsanalyse taak - use Dutch RSS approach
         news_task = asyncio.create_task(
-            news_service.search_company_news(
+            news_service.search_dutch_company_news(
                 request.company_name, 
                 search_params,
                 request.contactpersoon
@@ -432,8 +467,8 @@ async def nederlands_bedrijf_analyse(
         )
         tasks.append(news_task)
         
-        # Wacht op beide taken met timeout (90 sec voor grondige Nederlandse analyse)
-        timeout_seconds = 90
+        # Wacht op beide taken met timeout (voor Nederlandse analyse)
+        timeout_seconds = settings.ANALYSIS_TIMEOUT_DUTCH
         try:
             results = await asyncio.wait_for(
                 asyncio.gather(*tasks, return_exceptions=True),
@@ -569,9 +604,13 @@ async def nederlands_bedrijf_analyse(
             contactpersoon_provided=bool(request.contactpersoon)
         )
         
+        # Cleanup crawl service
+        await crawl_service.close()
+        
         return nederlandse_response
     
     except Exception as e:
+        await crawl_service.close()
         logger.error(
             "Unexpected error during Nederlandse bedrijfsanalyse", 
             error=str(e),
@@ -604,7 +643,7 @@ async def _fetch_news_analysis_by_name(news_service: NewsService, company_name: 
             'search_depth': request.search_depth
         }
         
-        # Search for news about the company
+        # Search for news about the company using RSS feeds
         news_analysis = await news_service.search_company_news(
             company_name, 
             search_params
@@ -653,7 +692,7 @@ async def _fetch_legal_findings_by_name(legal_service: LegalService, company_nam
 
 
 
-def _get_analysis_warnings(company_info, request, legal_findings: LegalFindings = None, news_analysis=None) -> list[str]:
+def _get_analysis_warnings(company_info, request, legal_findings: LegalFindings = None, news_analysis=None, web_content=None) -> list[str]:
     """
     Generate warnings about the analysis limitations.
     
@@ -662,19 +701,32 @@ def _get_analysis_warnings(company_info, request, legal_findings: LegalFindings 
         request: CompanyAnalysisRequest object
         legal_findings: LegalFindings object or None
         news_analysis: NewsAnalysis object or None
+        web_content: WebContent object or None
         
     Returns:
         List of warning messages
     """
     warnings = []
     
-    data_sources_used = ["KvK (Chamber of Commerce)"]
+    data_sources_used = []
+    if web_content:
+        data_sources_used.append("Crawl4AI website analysis")
     if legal_findings:
         data_sources_used.append("Legal case database")
     if news_analysis:
         data_sources_used.append("AI-powered news analysis")
     
-    warnings.append(f"This analysis is based on: {', '.join(data_sources_used)}")
+    if data_sources_used:
+        warnings.append(f"This analysis is based on: {', '.join(data_sources_used)}")
+    else:
+        warnings.append("This analysis is based on company name search only")
+    
+    if not web_content:
+        warnings.append("Website crawling was not successful - company information may be limited")
+    elif web_content.pages_crawled == 0:
+        warnings.append("No website content could be crawled - company information is limited")
+    elif web_content.pages_crawled < 3:
+        warnings.append("Limited website content crawled - analysis may be less comprehensive")
     
     if not legal_findings:
         warnings.append("Legal case analysis was not available (may be due to robots.txt restrictions or service limitations)")
@@ -682,21 +734,21 @@ def _get_analysis_warnings(company_info, request, legal_findings: LegalFindings 
     if not news_analysis:
         warnings.append("News sentiment analysis was not available (may be due to missing OpenAI API key or service limitations)")
     
-    if request.include_subsidiaries:
+    if hasattr(request, 'include_subsidiaries') and request.include_subsidiaries:
         warnings.append("Subsidiary analysis is not yet implemented")
     
     if not company_info.establishment_date:
         warnings.append("Establishment date not available - age-based risk factors not calculated")
     
     if company_info.employee_count is None:
-        warnings.append("Employee count not available from KvK data")
+        warnings.append("Employee count not available from crawled data")
     
     # News analysis specific warnings
     if news_analysis:
-        if news_analysis.total_articles_found < 5:
+        if hasattr(news_analysis, 'total_articles_found') and news_analysis.total_articles_found < 5:
             warnings.append("Limited news articles found - analysis may be less comprehensive")
         
-        if news_analysis.total_relevance < 0.7:
+        if hasattr(news_analysis, 'total_relevance') and news_analysis.total_relevance < 0.7:
             warnings.append("News relevance scores are moderate - some articles may be indirectly related")
     
     return warnings
@@ -774,11 +826,12 @@ def _get_risk_assessment_warnings(risk_assessment_obj) -> list[str]:
     Perform simplified company analysis with web search and legal case lookup.
     
     This endpoint implements the new workflow:
-    1. Searches for positive and negative news about the company on the web
-    2. Always searches Rechtspraak Open Data API for legal cases
-    3. Returns a simplified JSON response with good/bad news lists
+    1. Simple website crawling (depth=1, max 3 pages) using Crawl4AI
+    2. Searches for positive and negative news about the company on the web
+    3. Always searches Rechtspraak Open Data API for legal cases
+    4. Returns a simplified JSON response with good/bad news lists
     
-    The system searches asynchronously and combines results from web and legal sources.
+    The system performs fast parallel processing optimized for speed (< 15 seconds).
     """
 )
 async def analyze_company_simple(
@@ -812,6 +865,7 @@ async def analyze_company_simple(
         
         # Initialize services
         legal_service = LegalService()
+        crawl_service = CrawlService()
         news_service = None
         
         try:
@@ -826,8 +880,8 @@ async def analyze_company_simple(
         # Initialize legal service
         await legal_service.initialize()
         
-        # Run searches in parallel
-        logger.info("Starting parallel web search and legal lookup", company_name=request.company_name)
+        # Run simple website crawl, searches and legal lookup in parallel
+        logger.info("Starting parallel web crawl, news search and legal lookup", company_name=request.company_name)
         
         # Create search parameters
         search_params = {
@@ -837,23 +891,32 @@ async def analyze_company_simple(
             'search_depth': 'standard'
         }
         
-        # Run both searches concurrently
+        # Run crawl, news search and legal search concurrently
         tasks = [
-            asyncio.create_task(news_service.search_company_news(request.company_name, search_params)),
+            asyncio.create_task(crawl_service.crawl_company_website(
+                request.company_name, 
+                max_depth=1,  # Simple mode
+                simple_mode=True
+            )),
+            asyncio.create_task(news_service.search_company_news_simple(request.company_name, max_results=10)),
             asyncio.create_task(legal_service.search_company_cases(request.company_name, request.company_name))
         ]
         
-        # Wait for both with timeout
-        timeout_seconds = 60  # Allow more time for web searches
+        # Wait for all three with timeout (optimized for speed)
+        timeout_seconds = settings.ANALYSIS_TIMEOUT_SIMPLE
         try:
             results = await asyncio.wait_for(
                 asyncio.gather(*tasks, return_exceptions=True),
                 timeout=timeout_seconds
             )
             
-            news_analysis, legal_cases = results[0], results[1]
+            web_content, news_analysis, legal_cases = results[0], results[1], results[2]
             
             # Handle exceptions
+            if isinstance(web_content, Exception):
+                logger.warning("Website crawl failed", error=str(web_content))
+                web_content = None
+            
             if isinstance(news_analysis, Exception):
                 logger.warning("News analysis failed", error=str(news_analysis))
                 news_analysis = None
@@ -864,6 +927,7 @@ async def analyze_company_simple(
         
         except asyncio.TimeoutError:
             logger.warning("Analysis timed out, returning partial results")
+            web_content = None
             news_analysis = None
             legal_cases = []
         
@@ -934,9 +998,13 @@ async def analyze_company_simple(
             legal_count=legal_count
         )
         
+        # Cleanup crawl service
+        await crawl_service.close()
+        
         return simple_response
     
     except Exception as e:
+        await crawl_service.close()
         logger.error(
             "Unexpected error during simple analysis", 
             error=str(e),

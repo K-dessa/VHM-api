@@ -16,6 +16,12 @@ class ValidationError(BusinessAnalysisError):
     pass
 
 
+class CompanyNotFoundError(BusinessAnalysisError):
+    """Raised when company cannot be found or data is not available."""
+
+    pass
+
+
 class ExternalAPIError(BusinessAnalysisError):
     """Base class for external API errors."""
 

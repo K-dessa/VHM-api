@@ -231,6 +231,45 @@ class RiskAssessment(BaseModel):
     )
 
 
+class CrawledContent(BaseModel):
+    """Individual crawled page content."""
+    
+    url: str = Field(..., description="URL of the crawled page")
+    title: str = Field(..., description="Page title")
+    content: str = Field(..., description="Extracted markdown content")
+    links: List[str] = Field(default=[], description="Internal links found on page")
+    crawl_timestamp: float = Field(..., description="Timestamp when page was crawled")
+    content_length: int = Field(..., description="Length of extracted content")
+    language: str = Field(default="en", description="Detected language (nl/en)")
+
+
+class WebContent(BaseModel):
+    """Aggregated web content from Crawl4AI."""
+    
+    company_name: str = Field(..., description="Company name that was searched")
+    website_url: str = Field(..., description="Main website URL found")
+    pages_crawled: int = Field(..., description="Number of pages successfully crawled")
+    content_summary: str = Field(..., description="Brief summary of crawled content")
+    
+    main_sections: List[str] = Field(
+        default=[], 
+        description="Key content sections extracted from website"
+    )
+    business_activities: List[str] = Field(
+        default=[], 
+        description="Business activities identified from content"
+    )
+    contact_info: Dict[str, str] = Field(
+        default={}, 
+        description="Contact information extracted (email, phone, etc.)"
+    )
+    
+    crawled_pages: List[CrawledContent] = Field(
+        default=[], 
+        description="Individual page data (limited for response size)"
+    )
+
+
 class CompanyAnalysisResponse(BaseModel):
     """Complete company analysis response."""
 
@@ -246,6 +285,9 @@ class CompanyAnalysisResponse(BaseModel):
     )
     news_analysis: Optional[NewsAnalysis] = Field(
         None, description="News analysis results"
+    )
+    web_content: Optional[WebContent] = Field(
+        None, description="Crawled website content from Crawl4AI"
     )
     risk_assessment: RiskAssessment = Field(..., description="Overall risk assessment")
 

@@ -49,8 +49,19 @@ class Settings(BaseSettings):
     # Timeout settings (environment-specific)
     RECHTSPRAAK_TIMEOUT: int = config("RECHTSPRAAK_TIMEOUT", default=10, cast=int)
     OPENAI_TIMEOUT: int = config("OPENAI_TIMEOUT", default=30, cast=int)
+    ANALYSIS_TIMEOUT_SIMPLE: int = config("ANALYSIS_TIMEOUT_SIMPLE", default=25, cast=int)
     ANALYSIS_TIMEOUT_STANDARD: int = config("ANALYSIS_TIMEOUT_STANDARD", default=30, cast=int)
-    ANALYSIS_TIMEOUT_DEEP: int = config("ANALYSIS_TIMEOUT_DEEP", default=60, cast=int)
+    ANALYSIS_TIMEOUT_DUTCH: int = config("ANALYSIS_TIMEOUT_DUTCH", default=40, cast=int)
+    
+    # Crawl4AI settings (new improved workflow)
+    CRAWL_TIMEOUT: int = config("CRAWL_TIMEOUT", default=30, cast=int)
+    CRAWL_MAX_DEPTH_STANDARD: int = config("CRAWL_MAX_DEPTH_STANDARD", default=2, cast=int)
+    CRAWL_MAX_DEPTH_SIMPLE: int = config("CRAWL_MAX_DEPTH_SIMPLE", default=1, cast=int)
+    CRAWL_MAX_PAGES_STANDARD: int = config("CRAWL_MAX_PAGES_STANDARD", default=10, cast=int)
+    CRAWL_MAX_PAGES_SIMPLE: int = config("CRAWL_MAX_PAGES_SIMPLE", default=3, cast=int)
+    CRAWL_OBEY_ROBOTS_TXT: bool = config("CRAWL_OBEY_ROBOTS_TXT", default=True, cast=bool)
+    CRAWL_USER_AGENT: str = config("CRAWL_USER_AGENT", default="Mozilla/5.0 (compatible; BedrijfsanalyseBot/1.0)")
+    CRAWL_PRIORITIZE_DUTCH_DOMAINS: bool = config("CRAWL_PRIORITIZE_DUTCH_DOMAINS", default=True, cast=bool)
     
     # Feature flags
     ENABLE_LEGAL_SERVICE: bool = config("ENABLE_LEGAL_SERVICE", default=True, cast=bool)
@@ -58,11 +69,13 @@ class Settings(BaseSettings):
     ENABLE_METRICS_COLLECTION: bool = config("ENABLE_METRICS_COLLECTION", default=True, cast=bool)
     ENABLE_TRACING: bool = config("ENABLE_TRACING", default=True, cast=bool)
     ENABLE_ALERTING: bool = config("ENABLE_ALERTING", default=True, cast=bool)
+    ENABLE_CRAWL_SERVICE: bool = config("ENABLE_CRAWL_SERVICE", default=True, cast=bool)
     
     # Cache settings
     CACHE_TTL_COMPANY_INFO: int = config("CACHE_TTL_COMPANY_INFO", default=3600, cast=int)
     CACHE_TTL_LEGAL_CASES: int = config("CACHE_TTL_LEGAL_CASES", default=7200, cast=int)
     CACHE_TTL_NEWS_ANALYSIS: int = config("CACHE_TTL_NEWS_ANALYSIS", default=1800, cast=int)
+    CACHE_TTL_WEB_CONTENT: int = config("CACHE_TTL_WEB_CONTENT", default=3600, cast=int)
     
     # Health check settings
     HEALTH_CHECK_INTERVAL: int = config("HEALTH_CHECK_INTERVAL", default=30, cast=int)
@@ -158,8 +171,10 @@ class Settings(BaseSettings):
     
     def get_timeout_for_search_depth(self, search_depth: str) -> int:
         """Get timeout based on search depth."""
-        if search_depth == "deep":
-            return self.ANALYSIS_TIMEOUT_DEEP
+        if search_depth == "simple":
+            return self.ANALYSIS_TIMEOUT_SIMPLE
+        elif search_depth == "dutch":
+            return self.ANALYSIS_TIMEOUT_DUTCH
         return self.ANALYSIS_TIMEOUT_STANDARD
     
     def is_production(self) -> bool:

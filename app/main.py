@@ -27,16 +27,16 @@ app = FastAPI(
     description="""
 # Business Analysis API for Dutch Companies
 
-Comprehensive risk assessment and due diligence API for Dutch companies using KvK, legal, and AI-powered news analysis.
+Comprehensive risk assessment and due diligence API for Dutch companies using web crawling, legal databases, and AI-powered analysis.
 
 ## Features
 
-* **Company Information**: Official data from Dutch Chamber of Commerce (KvK)
-* **Legal Risk Assessment**: Court case analysis from Rechtspraak.nl
-* **News Sentiment Analysis**: AI-powered news analysis using OpenAI
-* **Integrated Risk Scoring**: Multi-factor risk assessment algorithm
-* **Real-time Processing**: Fast parallel data processing
-* **Rate Limited**: 100 requests per hour per API key
+* **Web Content Analysis**: AI-ready website crawling with Crawl4AI and Markdown output
+* **Legal Risk Assessment**: Comprehensive court case analysis from Rechtspraak.nl
+* **News Sentiment Analysis**: AI-powered news analysis focusing on Dutch sources
+* **Integrated Risk Scoring**: Multi-factor risk assessment combining all data sources
+* **Dutch-focused Analysis**: Prioritizes .nl domains and Dutch news sources
+* **Real-time Processing**: Fast parallel data processing with optimized timeouts
 
 ## Authentication
 
@@ -46,22 +46,32 @@ All endpoints require authentication via the `X-API-Key` header.
 
 - **Standard Rate Limit**: 100 requests per hour per API key
 - **Response Time Targets**: 
-  - Standard search: < 30 seconds
-  - Deep search: < 60 seconds
+  - Standard Analysis: < 30 seconds
+  - Dutch Analysis: < 40 seconds  
+  - Simple Analysis: < 15 seconds
 
 ## Data Sources
 
-1. **KvK API**: Official Dutch Chamber of Commerce data
-2. **Rechtspraak.nl**: Dutch legal database (when available)
-3. **OpenAI GPT-4**: AI-powered news analysis and sentiment scoring
+1. **Crawl4AI**: Intelligent web crawling with boilerplate removal and content chunking
+2. **Rechtspraak.nl**: Dutch legal database (always checked when available)
+3. **Dutch News Sources**: FD, NRC, NOS, Volkskrant, BNR and other Dutch media
+4. **OpenAI GPT-4**: AI-powered content analysis and risk assessment
+
+## Workflow Improvements
+
+The API now implements an improved workflow without KvK dependencies:
+- **Web-first approach**: Crawls company websites for authentic business information
+- **Mandatory legal checks**: Always performs Rechtspraak.nl searches when available
+- **Dutch content priority**: Focuses on Dutch domains and news sources for local companies
+- **Simplified architecture**: Eliminates external API dependencies and costs
 
 ## Response Formats
 
 All responses include:
 - Request correlation ID for tracking
 - Processing time metrics
-- Data source information
-- Quality warnings and limitations
+- Data source information with crawled content
+- Quality warnings and analysis limitations
 
 ## Error Handling
 
@@ -133,7 +143,7 @@ import os
 
 if not settings.DEBUG and os.getenv("TESTING") != "true":
     app.add_middleware(
-        TrustedHostMiddleware, allowed_hosts=["api.bedrijfsanalyse.nl", "localhost"]
+        TrustedHostMiddleware, allowed_hosts=["api.bedrijfsanalyse.nl", "localhost", "testserver"]
     )
 
 
