@@ -38,8 +38,8 @@ COPY --from=dependencies /usr/local/bin /usr/local/bin
 COPY app/ ./app/
 COPY main.py ./
 
-# Create directories for logs and data
-RUN mkdir -p /app/logs /app/data && \
+# Create directories for logs, data and crawl4ai
+RUN mkdir -p /app/logs /app/data /app/data/crawl4ai && \
     chown -R app:app /app
 
 # Switch to non-root user

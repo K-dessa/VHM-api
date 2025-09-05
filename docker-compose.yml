@@ -40,6 +40,9 @@ services:
       - ENABLE_TRACING=true
       - ENABLE_ALERTING=false
       
+      # Crawl4AI configuration
+      - CRAWL4_AI_BASE_DIRECTORY=/app/data/crawl4ai
+      
       # Monitoring
       - HEALTH_CHECK_INTERVAL=60
       - PROMETHEUS_METRICS_ENABLED=true
