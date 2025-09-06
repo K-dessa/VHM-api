@@ -1,6 +1,6 @@
 import asyncio
 import time
-import os
+import os, pathlib
 from typing import Dict, List, Optional, Any
 from urllib.parse import urljoin, urlparse
 import hashlib
@@ -12,6 +12,12 @@ from crawl4ai.extraction_strategy import LLMExtractionStrategy
 
 from app.core.config import settings
 from app.models.response_models import CrawledContent, WebContent
+
+# Set up cache directory for Railway deployment
+cache_dir = os.environ.get("CRAWL4AI_DB_PATH") or "/app/.cache/crawl4ai"
+pathlib.Path(cache_dir).mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("CRAWL4AI_DB_PATH", cache_dir)
+os.environ.setdefault("XDG_CACHE_HOME", "/app/.cache")
 
 logger = structlog.get_logger(__name__)
 

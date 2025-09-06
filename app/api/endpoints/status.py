@@ -2,7 +2,10 @@
 Status and metrics endpoints for monitoring and observability.
 """
 import time
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None
 import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
@@ -107,9 +110,13 @@ async def get_status() -> Dict[str, Any]:
         )
         
         # Get system resource usage
-        process = psutil.Process()
-        memory_info = process.memory_info()
-        cpu_percent = process.cpu_percent()
+        if psutil is not None:
+            process = psutil.Process()
+            memory_info = process.memory_info()
+            cpu_percent = process.cpu_percent()
+        else:
+            memory_info = type('obj', (object,), {'rss': 0})()
+            cpu_percent = 0.0
         
         # Rate limiter status
         rate_limiter = get_rate_limiter()
@@ -255,8 +262,13 @@ async def get_metrics() -> str:
         ])
         
         # System metrics
-        process = psutil.Process()
-        memory_info = process.memory_info()
+        if psutil is not None:
+            process = psutil.Process()
+            memory_info = process.memory_info()
+            cpu_percent = process.cpu_percent()
+        else:
+            memory_info = type('obj', (object,), {'rss': 0})()
+            cpu_percent = 0.0
         
         metrics_lines.extend([
             "# HELP process_memory_usage_bytes Process memory usage in bytes",
@@ -265,7 +277,7 @@ async def get_metrics() -> str:
             "",
             "# HELP process_cpu_usage_percent Process CPU usage percentage",
             "# TYPE process_cpu_usage_percent gauge",
-            f"process_cpu_usage_percent {process.cpu_percent()}",
+            f"process_cpu_usage_percent {cpu_percent}",
             ""
         ])
         

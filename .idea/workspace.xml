@@ -4,17 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="59eb0dbb-1be2-4d55-9154-18e0dff89e0e" name="Changes" comment="removed unused files">
+    <list default="true" id="59eb0dbb-1be2-4d55-9154-18e0dff89e0e" name="Changes" comment="small deployment fix.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CLAUDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/CLAUDE.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/endpoints/analyze.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/endpoints/analyze.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/core/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/core/exceptions.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/core/exceptions.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/models/request_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/models/request_models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/models/response_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/models/response_models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/news_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/news_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/verbeterde-workflow.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/verbeterde-workflow.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/api/endpoints/status.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/endpoints/status.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/services/crawl_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/crawl_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -134,7 +128,87 @@
       <option name="project" value="LOCAL" />
       <updated>1757071506025</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="MVP">
+      <option name="closed" value="true" />
+      <created>1757081995902</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1757081995902</updated>
+    </task>
+    <task id="LOCAL-00006" summary="small deployment fix.">
+      <option name="closed" value="true" />
+      <created>1757092971838</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1757092971838</updated>
+    </task>
+    <task id="LOCAL-00007" summary="small deployment fix.">
+      <option name="closed" value="true" />
+      <created>1757093221484</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1757093221484</updated>
+    </task>
+    <task id="LOCAL-00008" summary="small deployment fix.">
+      <option name="closed" value="true" />
+      <created>1757093416136</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1757093416136</updated>
+    </task>
+    <task id="LOCAL-00009" summary="small deployment fix.">
+      <option name="closed" value="true" />
+      <created>1757094353053</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1757094353053</updated>
+    </task>
+    <task id="LOCAL-00010" summary="small deployment fix.">
+      <option name="closed" value="true" />
+      <created>1757094695444</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1757094695444</updated>
+    </task>
+    <task id="LOCAL-00011" summary="small deployment fix.">
+      <option name="closed" value="true" />
+      <created>1757094957638</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1757094957638</updated>
+    </task>
+    <task id="LOCAL-00012" summary="small deployment fix.">
+      <option name="closed" value="true" />
+      <created>1757096228154</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1757096228154</updated>
+    </task>
+    <task id="LOCAL-00013" summary="small deployment fix.">
+      <option name="closed" value="true" />
+      <created>1757157290598</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1757157290598</updated>
+    </task>
+    <task id="LOCAL-00014" summary="small deployment fix.">
+      <option name="closed" value="true" />
+      <created>1757157443662</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1757157443662</updated>
+    </task>
+    <option name="localTasksCounter" value="15" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -143,6 +217,8 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="initial commit" />
     <MESSAGE value="removed unused files" />
-    <option name="LAST_COMMIT_MESSAGE" value="removed unused files" />
+    <MESSAGE value="MVP" />
+    <MESSAGE value="small deployment fix." />
+    <option name="LAST_COMMIT_MESSAGE" value="small deployment fix." />
   </component>
 </project>
