@@ -161,19 +161,20 @@ For API support or feature requests, contact the development team.
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://localhost:3000"] if settings.DEBUG else [],
+    allow_origins=["*"] if settings.DEBUG else ["https://api.bedrijfsanalyse.nl", "https://staging.api.bedrijfsanalyse.nl"],
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["X-API-Key", "Content-Type"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["X-API-Key", "Content-Type", "Authorization"],
 )
 
-# Trusted host middleware for security
+# Trusted host middleware for security - temporarily disabled for Railway testing
 import os
 
-if not settings.DEBUG and os.getenv("TESTING") != "true":
-    app.add_middleware(
-        TrustedHostMiddleware, allowed_hosts=["api.bedrijfsanalyse.nl", "localhost", "testserver"]
-    )
+# Temporarily disable TrustedHostMiddleware for Railway deployment
+# if not settings.DEBUG and os.getenv("TESTING") != "true":
+#     app.add_middleware(
+#         TrustedHostMiddleware, allowed_hosts=["api.bedrijfsanalyse.nl", "localhost", "testserver", "*.railway.app", "*.up.railway.app"]
+#     )
 
 
 @app.middleware("http")

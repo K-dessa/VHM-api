@@ -14,6 +14,28 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+@router.get(
+    "/",
+    summary="API Root",
+    description="Root endpoint providing basic API information and available endpoints",
+    tags=["health"]
+)
+async def root():
+    """Root endpoint with basic API information."""
+    return {
+        "message": "Bedrijfsanalyse API",
+        "version": settings.APP_VERSION,
+        "status": "running",
+        "docs": "/docs" if settings.DEBUG else "Documentation not available in production",
+        "health": "/health",
+        "endpoints": {
+            "health": "/health",
+            "status": "/status", 
+            "analyze_company": "/analyze-company",
+            "analyze_company_simple": "/analyze-company-simple",
+            "nederlands_bedrijf_analyse": "/nederlands-bedrijf-analyse"
+        }
+    }
 
 
 async def check_openai_api() -> str:
