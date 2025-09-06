@@ -14,28 +14,6 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-async def check_kvk_api() -> str:
-    """Check KvK API connectivity."""
-    if not settings.KVK_API_KEY:
-        return "unavailable"
-
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            # Use a basic test endpoint of KvK API
-            response = await client.get(
-                "https://api.kvk.nl/api/v1/naamgevingen",
-                headers={"apikey": settings.KVK_API_KEY},
-                params={"kvkNummer": "27312152"},  # Test with a known valid number
-            )
-            if response.status_code == 200:
-                return "healthy"
-            elif response.status_code == 401:
-                return "unhealthy"  # Invalid API key
-            else:
-                return "degraded"
-    except Exception as e:
-        logger.warning("KvK API health check failed", error=str(e))
-        return "unhealthy"
 
 
 async def check_openai_api() -> str:
@@ -87,7 +65,6 @@ async def check_rechtspraak_nl() -> str:
     Comprehensive health check endpoint that verifies connectivity to all external dependencies.
     
     This endpoint performs health checks on:
-    - **KvK API**: Dutch Chamber of Commerce API connectivity
     - **OpenAI API**: AI service availability for news analysis
     - **Rechtspraak.nl**: Dutch legal database accessibility
     
@@ -113,7 +90,6 @@ async def check_rechtspraak_nl() -> str:
                         "timestamp": "2024-01-15T10:30:00Z",
                         "version": "1.0.0",
                         "dependencies": {
-                            "kvk_api": "healthy",
                             "openai_api": "healthy", 
                             "rechtspraak_nl": "healthy"
                         },
@@ -130,7 +106,6 @@ async def check_rechtspraak_nl() -> str:
                         "status": "unhealthy",
                         "timestamp": "2024-01-15T10:30:00Z",
                         "dependencies": {
-                            "kvk_api": "unhealthy",
                             "openai_api": "degraded",
                             "rechtspraak_nl": "healthy"
                         }
@@ -145,29 +120,25 @@ async def health_check():
     """
     Comprehensive health check endpoint that verifies connectivity to all external dependencies.
     
-    Performs concurrent health checks on KvK API, OpenAI API, and Rechtspraak.nl
+    Performs concurrent health checks on OpenAI API and Rechtspraak.nl
     to provide detailed service status information.
     """
     start_time = time.time()
 
     # Run all health checks concurrently
-    kvk_status, openai_status, rechtspraak_status = await asyncio.gather(
-        check_kvk_api(),
+    openai_status, rechtspraak_status = await asyncio.gather(
         check_openai_api(),
         check_rechtspraak_nl(),
         return_exceptions=True,
     )
 
     # Convert exceptions to unhealthy status
-    if isinstance(kvk_status, Exception):
-        kvk_status = "unhealthy"
     if isinstance(openai_status, Exception):
         openai_status = "unhealthy"
     if isinstance(rechtspraak_status, Exception):
         rechtspraak_status = "unhealthy"
 
     dependencies = {
-        "kvk_api": kvk_status,
         "openai_api": openai_status,
         "rechtspraak_nl": rechtspraak_status,
     }

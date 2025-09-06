@@ -18,18 +18,24 @@ RUN useradd -m app || true \
  && mkdir -p /app/.cache /app/logs /app/data /app/data/crawl4ai \
  && chown -R app:app /app
 
-# Install Python dependencies (excluding problematic ones first)
+# Install Python dependencies
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade pip \
- && pip install --no-cache-dir fastapi uvicorn pydantic httpx beautifulsoup4 lxml openai python-decouple structlog tenacity psutil \
- && pip install --no-cache-dir pydantic-settings \
- && echo "Installed basic requirements, now trying crawl4ai..." \
- && (pip install --no-cache-dir crawl4ai==0.3.74 || echo "Crawl4ai failed, continuing...") \
- && pip install --no-cache-dir requests
+ && pip install --no-cache-dir -r /tmp/requirements.txt
 
+# Copy application code
 COPY app/ /app/app/
-COPY test_production_endpoints.py /app/test_production_endpoints.py
+
+# Set ownership
+RUN chown -R app:app /app
 
 USER app
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
 EXPOSE 8000
+
+# Railway uses PORT environment variable
 CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
