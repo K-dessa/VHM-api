@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 from datetime import datetime, timezone
 from typing import Callable
@@ -433,6 +434,35 @@ async def startup_event():
         logger.error("Critical service import failed", error=str(e))
     except Exception as e:
         logger.error("Service import test failed", error=str(e))
+    
+    # Container/Production specific diagnostics
+    logger.info("Environment diagnostics:")
+    logger.info("Python path", python_path=str(sys.path[:3]))  # First 3 paths
+    logger.info("Current working directory", cwd=os.getcwd())
+    logger.info("Environment variables", debug=settings.DEBUG, app_name=settings.APP_NAME)
+    
+    # Check if running in container
+    if os.path.exists('/.dockerenv'):
+        logger.info("Running in Docker container")
+    elif os.environ.get('KUBERNETES_SERVICE_HOST'):
+        logger.info("Running in Kubernetes")
+    else:
+        logger.info("Running in standard environment")
+    
+    # Port and host information
+    logger.info("FastAPI app info", 
+               version=app.version,
+               title=app.title,
+               docs_url=app.docs_url,
+               total_routes=len(app.routes))
+    
+    # Final startup validation - make a test request to ourselves if possible
+    try:
+        import socket
+        hostname = socket.gethostname()
+        logger.info("Network info", hostname=hostname)
+    except Exception as e:
+        logger.warning("Could not get network info", error=str(e))
 
 
 @app.on_event("shutdown")
