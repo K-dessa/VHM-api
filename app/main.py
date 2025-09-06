@@ -337,13 +337,102 @@ app.include_router(status.router, prefix="", tags=["status"])
 
 @app.on_event("startup")
 async def startup_event():
-    """Application startup event."""
+    """Application startup event with endpoint verification."""
     logger.info(
         "Application starting up",
         app_name=settings.APP_NAME,
         version=settings.APP_VERSION,
         debug=settings.DEBUG,
     )
+    
+    # Check if all expected endpoints are registered
+    expected_endpoints = [
+        ("GET", "/health"),
+        ("GET", "/status"), 
+        ("GET", "/cost-monitoring"),
+        ("GET", "/metrics"),
+        ("POST", "/analyze-company"),
+        ("POST", "/analyze-company-simple"),
+        ("POST", "/nederlands-bedrijf-analyse")
+    ]
+    
+    registered_routes = []
+    missing_endpoints = []
+    
+    for route in app.routes:
+        if hasattr(route, 'methods') and hasattr(route, 'path'):
+            for method in route.methods:
+                if method != "HEAD":  # Skip HEAD methods
+                    registered_routes.append((method, route.path))
+    
+    logger.info("Checking endpoint registration", expected_count=len(expected_endpoints))
+    
+    for method, path in expected_endpoints:
+        if (method, path) in registered_routes:
+            logger.info("Endpoint registered", method=method, path=path, status="✓")
+        else:
+            logger.error("Endpoint missing", method=method, path=path, status="✗")
+            missing_endpoints.append(f"{method} {path}")
+    
+    if missing_endpoints:
+        logger.error(
+            "Missing endpoints detected", 
+            missing_endpoints=missing_endpoints,
+            total_missing=len(missing_endpoints)
+        )
+    else:
+        logger.info("All expected endpoints registered successfully")
+    
+    logger.info(
+        "Endpoint registration summary",
+        total_registered=len([r for r in registered_routes if r[0] != "HEAD"]),
+        expected_endpoints=len(expected_endpoints),
+        missing_endpoints=len(missing_endpoints)
+    )
+    
+    # Log all registered routes for debugging
+    logger.info("All registered routes:")
+    for method, path in sorted(registered_routes):
+        logger.info("Route", method=method, path=path)
+    
+    # Test critical service imports during startup
+    try:
+        from .services.legal_service import LegalService
+        from .services.news_service import NewsService
+        from .services.crawl_service import CrawlService
+        from .services.risk_service import RiskService
+        logger.info("All service imports successful")
+        
+        # Test service initialization
+        try:
+            legal_service = LegalService()
+            logger.info("LegalService initialized successfully")
+        except Exception as e:
+            logger.warning("LegalService initialization warning", error=str(e))
+            
+        try:
+            news_service = NewsService()
+            logger.info("NewsService initialized successfully")
+        except Exception as e:
+            logger.warning("NewsService initialization warning", error=str(e))
+            
+        try:
+            crawl_service = CrawlService()
+            logger.info("CrawlService initialized successfully")
+            await crawl_service.close()  # Clean up immediately
+        except Exception as e:
+            logger.warning("CrawlService initialization warning", error=str(e))
+            
+        try:
+            risk_service = RiskService()
+            logger.info("RiskService initialized successfully")
+        except Exception as e:
+            logger.warning("RiskService initialization warning", error=str(e))
+            
+    except ImportError as e:
+        logger.error("Critical service import failed", error=str(e))
+    except Exception as e:
+        logger.error("Service import test failed", error=str(e))
 
 
 @app.on_event("shutdown")

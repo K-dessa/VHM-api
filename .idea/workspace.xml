@@ -6,8 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="59eb0dbb-1be2-4d55-9154-18e0dff89e0e" name="Changes" comment="small deployment fix.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/endpoints/health.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/endpoints/health.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/endpoints/status.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/endpoints/status.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -239,7 +237,15 @@
       <option name="project" value="LOCAL" />
       <updated>1757164842312</updated>
     </task>
-    <option name="localTasksCounter" value="19" />
+    <task id="LOCAL-00019" summary="small deployment fix.">
+      <option name="closed" value="true" />
+      <created>1757171873396</created>
+      <option name="number" value="00019" />
+      <option name="presentableId" value="LOCAL-00019" />
+      <option name="project" value="LOCAL" />
+      <updated>1757171873396</updated>
+    </task>
+    <option name="localTasksCounter" value="20" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
