@@ -28,9 +28,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Application stage  
 FROM base as application
 
-# Set Crawl4AI environment variables
+# Set environment variables including Crawl4AI paths
 ENV CRAWL4_AI_BASE_DIRECTORY=/app/data/crawl4ai
+ENV CRAWL4AI_DB_PATH=/app/data/crawl4ai/database.db
 ENV HOME=/app
+ENV CRAWL4AI_CACHE_DIR=/app/data/crawl4ai/cache
 
 WORKDIR /app
 

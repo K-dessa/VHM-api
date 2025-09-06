@@ -1,6 +1,22 @@
+import os
 import time
 from datetime import datetime, timezone
 from typing import Callable
+
+# Set Crawl4AI environment variables BEFORE any imports that might use crawl4ai
+os.environ.setdefault('CRAWL4_AI_BASE_DIRECTORY', '/tmp/crawl4ai')
+os.environ.setdefault('CRAWL4AI_DB_PATH', '/tmp/crawl4ai/database.db')
+os.environ.setdefault('CRAWL4AI_CACHE_DIR', '/tmp/crawl4ai/cache')
+
+# Ensure the directory exists
+try:
+    os.makedirs(os.environ['CRAWL4_AI_BASE_DIRECTORY'], exist_ok=True)
+except Exception:
+    # Fallback to /tmp if the preferred directory can't be created
+    os.environ['CRAWL4_AI_BASE_DIRECTORY'] = '/tmp/crawl4ai_fallback'
+    os.environ['CRAWL4AI_DB_PATH'] = '/tmp/crawl4ai_fallback/database.db'
+    os.environ['CRAWL4AI_CACHE_DIR'] = '/tmp/crawl4ai_fallback/cache'
+    os.makedirs('/tmp/crawl4ai_fallback', exist_ok=True)
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request
