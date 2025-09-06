@@ -19,6 +19,7 @@ security = HTTPBearer(auto_error=False)
 VALID_API_KEYS = {
     "test-key": {"name": "Test Client", "permissions": ["read", "analyze"]},
     "demo-key": {"name": "Demo Client", "permissions": ["read"]},
+    "test-api-key-12345678901234567890": {"name": "Production Test Client", "permissions": ["read", "analyze"]},
 }
 
 

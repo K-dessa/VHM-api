@@ -6,10 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="59eb0dbb-1be2-4d55-9154-18e0dff89e0e" name="Changes" comment="small deployment fix.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/api/endpoints/status.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/api/endpoints/status.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/services/crawl_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/services/crawl_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -208,7 +204,31 @@
       <option name="project" value="LOCAL" />
       <updated>1757157443662</updated>
     </task>
-    <option name="localTasksCounter" value="15" />
+    <task id="LOCAL-00015" summary="small deployment fix.">
+      <option name="closed" value="true" />
+      <created>1757159988800</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1757159988800</updated>
+    </task>
+    <task id="LOCAL-00016" summary="small deployment fix.">
+      <option name="closed" value="true" />
+      <created>1757164177916</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1757164177916</updated>
+    </task>
+    <task id="LOCAL-00017" summary="small deployment fix.">
+      <option name="closed" value="true" />
+      <created>1757164183459</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1757164183459</updated>
+    </task>
+    <option name="localTasksCounter" value="18" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
