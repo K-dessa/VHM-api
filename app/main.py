@@ -132,15 +132,27 @@ For API support or feature requests, contact the development team.
     openapi_tags=[
         {
             "name": "health",
-            "description": "Health check and system status endpoints"
+            "description": "Health check and system status endpoints",
+            "externalDocs": {
+                "description": "Health check documentation",
+                "url": "https://api.bedrijfsanalyse.nl/docs#/health"
+            }
         },
         {
             "name": "analysis", 
-            "description": "Company analysis and risk assessment endpoints"
+            "description": "Company analysis and risk assessment endpoints - Core business intelligence functionality",
+            "externalDocs": {
+                "description": "Analysis API documentation", 
+                "url": "https://api.bedrijfsanalyse.nl/docs#/analysis"
+            }
         },
         {
             "name": "status",
-            "description": "System metrics and monitoring endpoints"
+            "description": "System metrics, monitoring endpoints and operational intelligence",
+            "externalDocs": {
+                "description": "Monitoring and metrics documentation",
+                "url": "https://api.bedrijfsanalyse.nl/docs#/status"
+            }
         }
     ]
 )

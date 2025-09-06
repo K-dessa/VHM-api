@@ -79,15 +79,74 @@ async def check_rechtspraak_nl() -> str:
         return "unhealthy"
 
 
-@router.get("/health", response_model=HealthResponse)
+@router.get(
+    "/health", 
+    response_model=HealthResponse,
+    summary="System Health Check",
+    description="""
+    Comprehensive health check endpoint that verifies connectivity to all external dependencies.
+    
+    This endpoint performs health checks on:
+    - **KvK API**: Dutch Chamber of Commerce API connectivity
+    - **OpenAI API**: AI service availability for news analysis
+    - **Rechtspraak.nl**: Dutch legal database accessibility
+    
+    **Health Status Levels:**
+    - `healthy`: All dependencies are working normally
+    - `degraded`: Some dependencies have issues but core functionality works
+    - `unhealthy`: Critical dependencies are failing
+    
+    **Use Cases:**
+    - Load balancer health checks
+    - System monitoring and alerting
+    - Dependency status verification
+    - Service readiness checks
+    """,
+    response_description="Detailed health status with dependency information and uptime metrics",
+    responses={
+        200: {
+            "description": "Health check completed successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "healthy",
+                        "timestamp": "2024-01-15T10:30:00Z",
+                        "version": "1.0.0",
+                        "dependencies": {
+                            "kvk_api": "healthy",
+                            "openai_api": "healthy", 
+                            "rechtspraak_nl": "healthy"
+                        },
+                        "uptime_seconds": 3600
+                    }
+                }
+            }
+        },
+        503: {
+            "description": "Service unavailable - critical dependencies failing",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "unhealthy",
+                        "timestamp": "2024-01-15T10:30:00Z",
+                        "dependencies": {
+                            "kvk_api": "unhealthy",
+                            "openai_api": "degraded",
+                            "rechtspraak_nl": "healthy"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    tags=["health"]
+)
 async def health_check():
     """
-    Health check endpoint that verifies connectivity to external dependencies.
-
-    Returns:
-    - healthy: All dependencies are working
-    - degraded: Some dependencies have issues but core functionality works
-    - unhealthy: Critical dependencies are failing
+    Comprehensive health check endpoint that verifies connectivity to all external dependencies.
+    
+    Performs concurrent health checks on KvK API, OpenAI API, and Rechtspraak.nl
+    to provide detailed service status information.
     """
     start_time = time.time()
 
@@ -142,10 +201,75 @@ async def health_check():
     return health_response
 
 
-@router.get("/status")
+@router.get(
+    "/status",
+    summary="Service Status & Cost Monitoring", 
+    description="""
+    Enhanced status endpoint providing service status and OpenAI cost monitoring.
+    
+    This endpoint returns:
+    - **Service Status**: Current operational status
+    - **OpenAI Usage Metrics**: Token usage and cost estimates
+    - **Cost Alerts**: Notifications when spending thresholds are exceeded
+    - **Version Information**: Current API version
+    
+    **Cost Monitoring Features:**
+    - Daily cost tracking and limits ($10/day default)
+    - Monthly cost estimates ($100/month default)
+    - Token usage statistics
+    - Automated cost alerts
+    
+    **Use Cases:**
+    - Cost monitoring and budget management
+    - Usage analytics and optimization
+    - Service status verification
+    - Operational dashboards
+    """,
+    response_description="Service status with detailed cost monitoring information",
+    responses={
+        200: {
+            "description": "Status retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "ok",
+                        "timestamp": "2024-01-15T10:30:00Z",
+                        "version": "1.0.0",
+                        "openai_usage": {
+                            "total_requests": 150,
+                            "total_input_tokens": 25000,
+                            "total_output_tokens": 5000,
+                            "estimated_cost_usd": 2.45
+                        },
+                        "cost_alerts": []
+                    }
+                }
+            }
+        },
+        200: {
+            "description": "Status with cost alerts",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "warning",
+                        "openai_usage": {
+                            "estimated_cost_usd": 12.50
+                        },
+                        "cost_alerts": [
+                            "Daily cost limit exceeded: $12.50 > $10.00"
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    tags=["health"]
+)
 async def status_check():
     """
-    Enhanced status endpoint with OpenAI cost monitoring.
+    Enhanced status endpoint with comprehensive OpenAI cost monitoring and alerts.
+    
+    Provides real-time service status along with detailed cost tracking for OpenAI API usage.
     """
     status_data = {
         "status": "ok",
@@ -181,10 +305,96 @@ async def status_check():
     return status_data
 
 
-@router.get("/cost-monitoring")
+@router.get(
+    "/cost-monitoring",
+    summary="Detailed Cost Analytics",
+    description="""
+    Advanced OpenAI cost monitoring and analytics endpoint for financial oversight.
+    
+    **Detailed Metrics Provided:**
+    - **Current Session Statistics**: Token usage and costs for current session
+    - **Cost Analysis**: Per-request costs and daily/monthly projections  
+    - **Efficiency Metrics**: Token efficiency and cache hit rates
+    - **Optimization Recommendations**: Automated suggestions for cost reduction
+    
+    **Financial Insights:**
+    - Cost per request calculations
+    - Daily and monthly cost projections
+    - Efficiency metrics (tokens per request)
+    - Cache performance analysis
+    
+    **Optimization Features:**
+    - Automated cost optimization recommendations
+    - Token usage efficiency analysis
+    - Cache performance suggestions
+    - Prompt optimization guidance
+    
+    **Use Cases:**
+    - Financial planning and budgeting
+    - Cost optimization analysis
+    - Performance monitoring
+    - Resource utilization tracking
+    """,
+    response_description="Comprehensive cost analytics with optimization recommendations",
+    responses={
+        200: {
+            "description": "Cost monitoring data retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "timestamp": "2024-01-15T10:30:00Z",
+                        "current_session": {
+                            "total_requests": 150,
+                            "total_input_tokens": 25000,
+                            "total_output_tokens": 5000,
+                            "estimated_cost_usd": 2.45
+                        },
+                        "cost_analysis": {
+                            "cost_per_request_usd": 0.0163,
+                            "estimated_daily_cost_usd": 3.92,
+                            "estimated_monthly_cost_usd": 117.60
+                        },
+                        "efficiency_metrics": {
+                            "avg_input_tokens_per_request": 166.7,
+                            "avg_output_tokens_per_request": 33.3,
+                            "cache_hit_rate": 0.25
+                        },
+                        "recommendations": [
+                            "Consider optimizing prompts to reduce token usage"
+                        ]
+                    }
+                }
+            }
+        },
+        503: {
+            "description": "OpenAI service unavailable",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "OpenAI cost monitoring unavailable: Missing OpenAI API key"
+                    }
+                }
+            }
+        },
+        500: {
+            "description": "Internal server error",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Failed to retrieve cost monitoring data"
+                    }
+                }
+            }
+        }
+    },
+    tags=["health"]
+)
 async def cost_monitoring():
     """
-    Detailed OpenAI cost monitoring endpoint.
+    Advanced OpenAI cost monitoring endpoint providing detailed financial analytics and optimization recommendations.
+    
+    Analyzes current usage patterns to provide cost projections, efficiency metrics, 
+    and automated recommendations for cost optimization.
     """
     try:
         news_service = NewsService()

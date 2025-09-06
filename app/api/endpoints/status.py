@@ -80,13 +80,117 @@ class MetricsCollector:
             _metrics["cache_misses"] += 1
 
 
-@router.get("/status")
+@router.get(
+    "/status",
+    summary="Comprehensive API Status Dashboard",
+    description="""
+    Advanced system status endpoint providing comprehensive API statistics, performance metrics, and service health.
+    
+    **Comprehensive Metrics Provided:**
+    - **Service Information**: Version, uptime, and general status
+    - **Request Statistics**: Success rates, error counts, and throughput
+    - **Performance Metrics**: Response times, percentiles, and resource usage
+    - **External Services**: Health status of dependent services
+    - **Cache Performance**: Hit rates and efficiency metrics
+    - **Rate Limiting**: Current usage and limits
+    
+    **Performance Analytics:**
+    - Response time percentiles (P50, P90, P95, P99)
+    - Memory and CPU usage monitoring
+    - Request success/failure rates
+    - Service uptime tracking
+    
+    **Operational Intelligence:**
+    - External service health monitoring
+    - Cache performance analysis
+    - Rate limiting status
+    - Resource utilization metrics
+    
+    **Use Cases:**
+    - System monitoring dashboards
+    - Performance analysis and optimization
+    - Capacity planning
+    - Operational health checks
+    - SLA monitoring
+    """,
+    response_description="Comprehensive system status with detailed metrics and health information",
+    responses={
+        200: {
+            "description": "Status retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "service": "Bedrijfsanalyse API",
+                        "version": "1.0.0",
+                        "status": "healthy",
+                        "timestamp": "2024-01-15T10:30:00Z",
+                        "uptime": {
+                            "seconds": 3600,
+                            "hours": 1.0,
+                            "human_readable": "1h"
+                        },
+                        "statistics": {
+                            "total_requests": 1250,
+                            "successful_requests": 1198,
+                            "failed_requests": 52,
+                            "success_rate_percent": 95.84,
+                            "average_response_time_seconds": 2.345
+                        },
+                        "performance": {
+                            "memory_usage_mb": 128.5,
+                            "cpu_percent": 12.3,
+                            "response_time_percentiles": {
+                                "p50": 1.234,
+                                "p90": 3.456,
+                                "p95": 4.789,
+                                "p99": 8.123
+                            }
+                        },
+                        "external_services": {
+                            "legal_service": {
+                                "status": "healthy",
+                                "success_rate_percent": 98.5,
+                                "robots_allowed": True,
+                                "total_calls": 234
+                            },
+                            "news_service": {
+                                "status": "healthy", 
+                                "success_rate_percent": 94.2,
+                                "total_calls": 567
+                            }
+                        },
+                        "cache": {
+                            "hits": 450,
+                            "misses": 123,
+                            "hit_rate_percent": 78.5
+                        },
+                        "rate_limiting": {
+                            "active_keys": 25,
+                            "requests_per_hour_limit": 100
+                        }
+                    }
+                }
+            }
+        },
+        500: {
+            "description": "Internal server error",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Error generating status report"
+                    }
+                }
+            }
+        }
+    },
+    tags=["status"]
+)
 async def get_status() -> Dict[str, Any]:
     """
-    Get comprehensive API status information.
+    Comprehensive API status endpoint providing detailed system metrics, performance analytics, and service health information.
     
-    Returns:
-        Dict containing API statistics, performance metrics, and service health
+    Returns extensive operational data including request statistics, performance metrics,
+    external service health, and resource utilization for system monitoring and optimization.
     """
     try:
         # Calculate uptime
@@ -168,13 +272,63 @@ async def get_status() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail="Error generating status report")
 
 
-@router.get("/health")
+@router.get(
+    "/health", 
+    summary="Load Balancer Health Check",
+    description="""
+    Lightweight health check endpoint optimized for load balancers and monitoring systems.
+    
+    **Fast & Lightweight:**
+    - Minimal response time for quick health verification
+    - Simple pass/fail health status
+    - Optimized for automated monitoring systems
+    - No external dependency checks (for speed)
+    
+    **Use Cases:**
+    - Load balancer health checks  
+    - Kubernetes liveness/readiness probes
+    - Simple uptime monitoring
+    - Circuit breaker pattern implementations
+    
+    **Response Format:**
+    Returns basic service identification and timestamp for quick health verification.
+    
+    **Note:** For comprehensive health checks including external dependencies,
+    use the `/health` endpoint in the health router instead.
+    """,
+    response_description="Simple health status for load balancer checks",
+    responses={
+        200: {
+            "description": "Service is healthy and operational",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "healthy",
+                        "timestamp": "2024-01-15T10:30:00Z",
+                        "service": "bedrijfsanalyse-api"
+                    }
+                }
+            }
+        },
+        503: {
+            "description": "Service is unavailable",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Service unavailable"
+                    }
+                }
+            }
+        }
+    },
+    tags=["status"]
+)
 async def health_check() -> Dict[str, str]:
     """
-    Simple health check endpoint for load balancers.
+    Lightweight health check endpoint for load balancers and monitoring systems.
     
-    Returns:
-        Simple health status
+    Provides fast health verification without external dependency checks
+    for optimal performance in automated monitoring scenarios.
     """
     try:
         # Perform basic health checks
@@ -194,13 +348,80 @@ async def health_check() -> Dict[str, str]:
         raise HTTPException(status_code=503, detail="Service unavailable")
 
 
-@router.get("/metrics", response_class=PlainTextResponse)
+@router.get(
+    "/metrics", 
+    response_class=PlainTextResponse,
+    summary="Prometheus Metrics Export",
+    description="""
+    Export system metrics in Prometheus format for monitoring and alerting systems.
+    
+    **Prometheus Metrics Provided:**
+    - **Request Metrics**: Total requests, success/error counts, response times
+    - **External API Metrics**: Call counts and success rates per service
+    - **Cache Metrics**: Hit/miss ratios and performance data
+    - **System Metrics**: Memory usage, CPU utilization, uptime
+    - **Performance Histograms**: Response time percentiles and distributions
+    
+    **Metric Categories:**
+    - `http_requests_total`: Total HTTP request counter
+    - `http_request_duration_seconds`: Response time histogram with quantiles
+    - `external_api_calls_*`: External service call metrics
+    - `cache_hits/misses_total`: Cache performance counters
+    - `process_*`: System resource utilization metrics
+    
+    **Integration Support:**
+    - Compatible with Prometheus scraping
+    - Grafana dashboard integration ready
+    - AlertManager rule compatibility
+    - Standard Prometheus metric naming conventions
+    
+    **Use Cases:**
+    - Prometheus metric collection
+    - Grafana dashboard visualization
+    - Automated alerting with AlertManager
+    - Performance monitoring and SLA tracking
+    - Capacity planning and resource optimization
+    """,
+    response_description="Prometheus-formatted metrics data",
+    responses={
+        200: {
+            "description": "Metrics exported successfully",
+            "content": {
+                "text/plain": {
+                    "example": """# HELP http_requests_total Total number of HTTP requests
+# TYPE http_requests_total counter
+http_requests_total 1250
+
+# HELP http_request_duration_seconds HTTP request latency  
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds{quantile="0.5"} 1.234
+http_request_duration_seconds{quantile="0.95"} 4.789
+
+# HELP external_api_calls_total_legal Total external API calls to legal
+# TYPE external_api_calls_total_legal counter
+external_api_calls_total_legal 234"""
+                }
+            }
+        },
+        500: {
+            "description": "Error generating metrics",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Error generating metrics"
+                    }
+                }
+            }
+        }
+    },
+    tags=["status"]
+)
 async def get_metrics() -> str:
     """
-    Get metrics in Prometheus format for monitoring.
+    Export comprehensive system metrics in Prometheus format for monitoring and alerting.
     
-    Returns:
-        Prometheus-formatted metrics
+    Provides detailed operational metrics including request statistics, external service health,
+    cache performance, and system resource utilization in standard Prometheus format.
     """
     try:
         metrics_lines = []
