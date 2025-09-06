@@ -1,5 +1,6 @@
 import asyncio
 import time
+import os
 from typing import Dict, List, Optional, Any
 from urllib.parse import urljoin, urlparse
 import hashlib
@@ -30,6 +31,20 @@ class CrawlService:
         self.max_pages = 10
         self.obey_robots_txt = True
         self._crawler = None
+        
+        # Set Crawl4AI data directory to avoid permission issues
+        self.crawl4ai_data_dir = os.environ.get('CRAWL4_AI_BASE_DIRECTORY', '/tmp/crawl4ai')
+        os.environ['CRAWL4_AI_BASE_DIRECTORY'] = self.crawl4ai_data_dir
+        
+        # Ensure the directory exists
+        try:
+            os.makedirs(self.crawl4ai_data_dir, exist_ok=True)
+        except Exception as e:
+            logger.warning(f"Could not create crawl4ai directory: {e}")
+            # Fall back to /tmp if needed
+            self.crawl4ai_data_dir = '/tmp/crawl4ai_fallback'
+            os.environ['CRAWL4_AI_BASE_DIRECTORY'] = self.crawl4ai_data_dir
+            os.makedirs(self.crawl4ai_data_dir, exist_ok=True)
         
     async def _get_crawler(self) -> AsyncWebCrawler:
         """Get or create the async web crawler instance."""
