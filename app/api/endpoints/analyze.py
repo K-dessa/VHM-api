@@ -780,7 +780,7 @@ def _convert_risk_assessment_format(risk_assessment_obj) -> RiskAssessment:
         risk_factors=all_factors[:10],  # Limit to top 10
         positive_factors=[],  # Legacy format doesn't have separate positive factors
         recommendations=all_recommendations[:8],  # Limit to top 8
-        confidence_level=min([score.confidence for score in risk_assessment_obj.risk_scores if score.confidence is not None] + [0.7])
+        confidence_level=min([score.confidence for score in risk_assessment_obj.risk_scores if score.confidence is not None and isinstance(score.confidence, (int, float))] or [0.7])
     )
 
 
