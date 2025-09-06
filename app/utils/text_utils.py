@@ -170,3 +170,43 @@ def clean_text_content(text: str) -> str:
     return text.strip()
 
 
+def clean_text(text: str) -> str:
+    """Clean and normalize text by removing extra whitespace."""
+    if not text:
+        return ""
+    return re.sub(r'\s+', ' ', text.strip())
+
+
+def extract_keywords(text: str, max_keywords: int = 10) -> List[str]:
+    """Extract keywords from text."""
+    if not text:
+        return []
+    
+    # Simple keyword extraction - split by whitespace and filter
+    words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+    
+    # Remove common stop words
+    stop_words = {
+        'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+        'by', 'from', 'up', 'about', 'into', 'through', 'during', 'before',
+        'after', 'above', 'below', 'between', 'among', 'is', 'are', 'was',
+        'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does',
+        'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must',
+        'can', 'this', 'that', 'these', 'those', 'a', 'an', 'de', 'het',
+        'van', 'en', 'op', 'in', 'voor', 'met', 'aan', 'bij', 'uit', 'over',
+        'onder', 'tussen', 'door', 'naar', 'tot', 'zonder', 'tegen', 'rond'
+    }
+    
+    # Filter out stop words and short words
+    keywords = [word for word in words if word not in stop_words and len(word) >= 3]
+    
+    # Count frequency and return most common
+    word_count = {}
+    for word in keywords:
+        word_count[word] = word_count.get(word, 0) + 1
+    
+    # Sort by frequency and return top keywords
+    sorted_words = sorted(word_count.items(), key=lambda x: x[1], reverse=True)
+    return [word for word, count in sorted_words[:max_keywords]]
+
+

@@ -411,3 +411,13 @@ class HealthResponse(BaseModel):
         ..., description="Status of external dependencies"
     )
     uptime_seconds: float = Field(..., description="Service uptime in seconds")
+
+
+class AnalysisResponse(BaseModel):
+    """Generic analysis response model."""
+    
+    request_id: str = Field(..., description="Unique request identifier")
+    timestamp: float = Field(..., description="Analysis timestamp")
+    company_name: str = Field(..., description="Company name analyzed")
+    analysis_type: str = Field(..., description="Type of analysis performed")
+    status: str = Field(..., description="Analysis status")

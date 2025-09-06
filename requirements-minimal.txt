@@ -1,0 +1,13 @@
+fastapi==0.104.1
+uvicorn==0.24.0
+pydantic>=2.7.0,<3.0.0
+pydantic-settings>=2.0.0
+httpx==0.25.2
+beautifulsoup4==4.12.2
+lxml>=5.3.0
+openai>=1.45.0
+python-decouple==3.8
+structlog==23.2.0
+tenacity==8.2.3
+psutil>=5.9
+requests~=2.26
