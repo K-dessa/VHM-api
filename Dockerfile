@@ -5,7 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     HOME=/app \
     XDG_CACHE_HOME=/app/.cache \
-    CRAWL4AI_DB_PATH=/app/.cache/crawl4ai
+    CRAWL4AI_DB_PATH=/app/.cache/crawl4ai \
+    PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
 
 # Install system dependencies including Rust for some packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -22,6 +23,13 @@ RUN useradd -m app || true \
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade pip \
  && pip install --no-cache-dir -r /tmp/requirements.txt
+
+# Install Playwright and download Chromium browser and required OS deps
+# Do this at build time so production containers have browsers available.
+RUN pip install --no-cache-dir playwright \
+ && playwright install --with-deps chromium \
+ && mkdir -p /app/.cache/ms-playwright \
+ && chmod -R a+rx /app/.cache/ms-playwright || true
 
 # Copy application code
 COPY app/ /app/app/
