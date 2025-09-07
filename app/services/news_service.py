@@ -538,7 +538,8 @@ class NewsService:
 
             # Quick analysis without deep content processing
             analyzed_articles = []
-            for article in articles[:max_results]:  # Limit processing
+            # Analyze all gathered articles to also include Google Search results
+            for article in articles:
                 analyzed_article = await self._analyze_article(article, company_name)
                 if (
                     analyzed_article and analyzed_article.relevance_score >= 0.2
