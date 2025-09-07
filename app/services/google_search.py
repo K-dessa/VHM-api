@@ -1,6 +1,7 @@
 import asyncio
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
+import re
 
 import httpx
 import structlog
@@ -34,6 +35,7 @@ class GoogleSearchClient:
         lang_nl: bool = True,
         site_nl_only: bool = False,
         start: int = 1,
+        news_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """Execute a web search and return normalized items.
 
@@ -42,6 +44,7 @@ class GoogleSearchClient:
         - lang_nl: if True, prefer Dutch results (lr=lang_nl & gl=nl)
         - site_nl_only: if True, add 'site:.nl' to the query
         - start: pagination start index (1-based)
+        - news_only: if True, filter results to likely news articles
         """
         q = query.strip()
         if site_nl_only and "site:.nl" not in q:
@@ -68,8 +71,11 @@ class GoogleSearchClient:
                     )
                     return []
                 data = resp.json()
-                items = data.get("items", []) or []
-                return [self._normalize_item(item) for item in items]
+                raw_items = data.get("items", []) or []
+                normalized = [self._normalize_item(item) for item in raw_items]
+                if news_only:
+                    normalized = [item for item in normalized if self._is_probable_news_url(item.get("url", ""))]
+                return normalized
         except Exception as e:
             logger.warning("Google CSE request failed", error=str(e))
             return []
@@ -98,3 +104,26 @@ class GoogleSearchClient:
             return host or "unknown"
         except Exception:
             return "unknown"
+
+    @staticmethod
+    def _is_probable_news_url(url: str) -> bool:
+        """Heuristically determine if a URL likely points to a news article."""
+        try:
+            parsed = urlparse(url)
+            host = parsed.netloc.lower()
+            path = parsed.path.lower()
+
+            # Keywords often present in news domains or paths
+            keywords = ["news", "nieuws", "article", "artikel"]
+            if any(k in host for k in keywords):
+                return True
+            if any(k in path for k in keywords):
+                return True
+
+            # Look for date patterns commonly used in news articles
+            if re.search(r"/20\d{2}/\d{2}/\d{2}/", path):
+                return True
+
+            return False
+        except Exception:
+            return False

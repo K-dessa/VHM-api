@@ -680,7 +680,13 @@ class NewsService:
                 google_items: List[Dict[str, Any]] = []
                 # Limit number of calls to keep performance reasonable
                 for q in queries[:3]:
-                    items = await self.google_search.search(q, num=10, lang_nl=True, site_nl_only=False)
+                    items = await self.google_search.search(
+                        q,
+                        num=10,
+                        lang_nl=True,
+                        site_nl_only=False,
+                        news_only=True,
+                    )
                     if items:
                         google_items.extend(items)
 
@@ -749,7 +755,13 @@ class NewsService:
 
                     google_items: List[Dict[str, Any]] = []
                     for q in queries:
-                        items = await self.google_search.search(q, num=10, lang_nl=True, site_nl_only=True)
+                        items = await self.google_search.search(
+                            q,
+                            num=10,
+                            lang_nl=True,
+                            site_nl_only=True,
+                            news_only=True,
+                        )
                         if items:
                             google_items.extend(items)
 
