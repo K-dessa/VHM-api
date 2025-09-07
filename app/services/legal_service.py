@@ -274,14 +274,23 @@ class LegalService:
                 )
 
                 if response.status_code == 200:
-                    try:
-                        return response.json()
-                    except ValueError as e:
-                        logger.error(
-                            "API search response JSON decode error",
+                    content_type = response.headers.get("Content-Type", "")
+                    if "application/json" in content_type:
+                        try:
+                            return response.json()
+                        except ValueError as e:
+                            logger.warning(
+                                "API search response JSON decode error",
+                                params=params,
+                                error=str(e),
+                                response_text=response.text[:1000],
+                            )
+                            return None
+                    else:
+                        logger.warning(
+                            "Unexpected content type from API search",
                             params=params,
-                            error=str(e),
-                            response_text=response.text[:1000],
+                            content_type=content_type,
                         )
                         return None
                 else:
