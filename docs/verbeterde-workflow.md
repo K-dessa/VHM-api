@@ -55,6 +55,7 @@ Workflow
 	•	Alleen bedrijfsnaam
 	2.	Parallel processing
 	•	Google News RSS (max. 10 items, snelle fetch)
+	•	Google Custom Search JSON API (kleine set, NL voorkeur)
 	•	Rechtspraak.nl API
 	•	Crawl4AI maximaal 2–3 pagina’s (depth=1)
 	3.	Simple AI analysis

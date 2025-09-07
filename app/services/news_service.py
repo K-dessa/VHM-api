@@ -502,6 +502,40 @@ class NewsService:
                 company_name=company_name, max_results=max_results
             )
 
+            # Always enrich with a small Google Custom Search if configured
+            if self.google_search:
+                try:
+                    queries: List[str] = [f'"{company_name}"']
+                    google_items: List[Dict[str, Any]] = []
+                    for q in queries:
+                        items = await self.google_search.search(
+                            q,
+                            num=10,
+                            lang_nl=True,
+                            site_nl_only=False,
+                            news_only=True,
+                        )
+                        if items:
+                            google_items.extend(items)
+
+                    existing_urls = {a.get("url") for a in articles if a.get("url")}
+                    added = 0
+                    for item in google_items:
+                        url = item.get("url")
+                        if url and url not in existing_urls:
+                            articles.append(item)
+                            existing_urls.add(url)
+                            added += 1
+                    logger.info(
+                        "Google web enrichment merged for simple search",
+                        added=added,
+                        total=len(articles),
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Google web enrichment failed for simple search", error=str(e)
+                    )
+
             # Quick analysis without deep content processing
             analyzed_articles = []
             for article in articles[:max_results]:  # Limit processing
@@ -678,6 +712,47 @@ class NewsService:
                 for article in contact_articles:
                     if article.get("url") not in existing_urls:
                         articles.append(article)
+
+            # Always enrich with Google Custom Search results when configured
+            if self.google_search:
+                try:
+                    # Build a small set of focused queries
+                    queries: List[str] = [f'"{company_name}"']
+                    if contact_person:
+                        queries.append(f'"{company_name}" "{contact_person}"')
+
+                    # Execute searches (cap to keep latency low)
+                    google_items: List[Dict[str, Any]] = []
+                    for q in queries[:2]:
+                        items = await self.google_search.search(
+                            q,
+                            num=10,
+                            lang_nl=True,
+                            site_nl_only=False,
+                            news_only=True,
+                        )
+                        if items:
+                            google_items.extend(items)
+
+                    # Deduplicate and merge
+                    existing_urls = {a.get("url") for a in articles if a.get("url")}
+                    added = 0
+                    for item in google_items:
+                        url = item.get("url")
+                        if url and url not in existing_urls:
+                            articles.append(item)
+                            existing_urls.add(url)
+                            added += 1
+                    logger.info(
+                        "Google web enrichment merged for standard search",
+                        added=added,
+                        total=len(articles),
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Google web enrichment failed for standard search",
+                        error=str(e),
+                    )
 
             logger.info(f"RSS search completed: found {len(articles)} articles")
             return articles
