@@ -2,7 +2,7 @@
 Risk assessment service for integrated company analysis.
 """
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -328,9 +328,19 @@ class RiskService:
             ]
 
             for article in news.articles[:20]:  # Check recent articles
-                article_text = (
-                    article.get("title", "") + " " + article.get("summary", "")
-                ).lower()
+                # News articles may be dictionaries or pydantic models.
+                # Support both structures when extracting text for keyword checks.
+                title = (
+                    article.get("title", "")
+                    if isinstance(article, dict)
+                    else getattr(article, "title", "")
+                )
+                summary = (
+                    article.get("summary", "")
+                    if isinstance(article, dict)
+                    else getattr(article, "summary", "")
+                )
+                article_text = (title + " " + summary).lower()
 
                 for keyword in financial_risk_keywords:
                     if keyword in article_text:
