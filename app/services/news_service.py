@@ -515,7 +515,7 @@ class NewsService:
                             num=10,
                             lang_nl=True,
                             site_nl_only=False,
-                            news_only=True,
+                            news_only=False,
                         )
                         if items:
                             google_items.extend(items)
@@ -739,7 +739,7 @@ class NewsService:
                             num=10,
                             lang_nl=True,
                             site_nl_only=False,
-                            news_only=True,
+                            news_only=False,
                         )
                         if items:
                             google_items.extend(items)
@@ -862,7 +862,7 @@ class NewsService:
                         num=10,
                         lang_nl=True,
                         site_nl_only=False,
-                        news_only=True,
+                        news_only=False,
                     )
                     if items:
                         google_items.extend(items)
@@ -944,7 +944,7 @@ class NewsService:
                             num=10,
                             lang_nl=True,
                             site_nl_only=True,
-                            news_only=True,
+                            news_only=False,
                         )
                         if items:
                             google_items.extend(items)
