@@ -20,6 +20,7 @@ Comprehensive risk assessment and due diligence API for Dutch companies. Works w
 - Docker & Docker Compose
 - KvK API Access Key
 - OpenAI API Key (for news analysis)
+- Google Custom Search API Key + Engine ID (for extra web links)
 
 ## 🛠 Installation
 
@@ -49,6 +50,8 @@ LOG_LEVEL=INFO
 # External API Keys
 KVK_API_KEY=your_kvk_api_key_here
 OPENAI_API_KEY=your_openai_api_key_here
+GOOGLE_SEARCH_API_KEY=your_google_search_api_key
+GOOGLE_SEARCH_ENGINE_ID=your_cse_engine_id
 
 # Authentication
 API_KEYS=your-secure-api-key-32-chars-min,another-key-if-needed

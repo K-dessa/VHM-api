@@ -13,6 +13,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
 from app.models.response_models import NewsAnalysis, NewsArticle, NewsItem, PositiveNews, NegativeNews
+from app.services.google_search import GoogleSearchClient
 
 logger = structlog.get_logger()
 
@@ -340,11 +341,22 @@ class NewsService:
         # Initialize RSS news search
         self.rss_search = RSSNewsSearch()
         self.cache_ttl = {}
-        
+
         # Cost tracking
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.total_requests = 0
+
+        # Optional Google Search
+        self.google_search: Optional[GoogleSearchClient] = None
+        try:
+            if settings.GOOGLE_SEARCH_API_KEY and settings.GOOGLE_SEARCH_ENGINE_ID:
+                self.google_search = GoogleSearchClient()
+                logger.info("Google Search API enabled for news enrichment")
+            else:
+                logger.info("Google Search API not configured; skipping web search enrichment")
+        except Exception as e:
+            logger.warning("Failed to initialize Google Search client", error=str(e))
 
     async def search_dutch_company_news(
         self, company_name: str, search_params: Dict[str, Any], contact_person: str = None
@@ -599,7 +611,7 @@ class NewsService:
         include_positive = search_params.get("include_positive", True)
         include_negative = search_params.get("include_negative", True)
         
-        # Use OpenAI to perform actual web search
+        # Use RSS as primary news source
         search_results = []
         
         # Build search queries with contact person if provided
@@ -651,6 +663,39 @@ class NewsService:
                 )
                 search_results.extend(contact_negative_results)
         
+        # Enrich with Google Custom Search results (general web) if available
+        if self.google_search:
+            try:
+                # Base query with exact company name
+                queries = [f'"{company_name}"']
+                if contact_person:
+                    queries.append(f'"{company_name}" "{contact_person}"')
+
+                # Sentiment hints improve diversity of pages discovered
+                if include_positive:
+                    queries.append(f'"{company_name}" award OR contract OR partnership')
+                if include_negative:
+                    queries.append(f'"{company_name}" lawsuit OR investigation OR fine')
+
+                google_items: List[Dict[str, Any]] = []
+                # Limit number of calls to keep performance reasonable
+                for q in queries[:3]:
+                    items = await self.google_search.search(q, num=10, lang_nl=True, site_nl_only=False)
+                    if items:
+                        google_items.extend(items)
+
+                # Deduplicate by URL and merge
+                existing_urls = {item.get('url') for item in search_results if item.get('url')}
+                for item in google_items:
+                    url = item.get('url')
+                    if url and url not in existing_urls:
+                        search_results.append(item)
+                        existing_urls.add(url)
+
+                logger.info("Merged Google web results", total=len(search_results))
+            except Exception as e:
+                logger.warning("Google web enrichment failed", error=str(e))
+
         return search_results
 
     async def _perform_dutch_rss_search(
@@ -695,7 +740,32 @@ class NewsService:
                     if article.get('url') not in existing_urls:
                         articles.append(article)
             
-            logger.info(f"Dutch RSS search completed: found {len(articles)} articles")
+            # Enrich with Google Custom Search focused on NL domains if available
+            if self.google_search:
+                try:
+                    queries = [f'"{company_name}"']
+                    if contact_person:
+                        queries.append(f'"{company_name}" "{contact_person}"')
+
+                    google_items: List[Dict[str, Any]] = []
+                    for q in queries:
+                        items = await self.google_search.search(q, num=10, lang_nl=True, site_nl_only=True)
+                        if items:
+                            google_items.extend(items)
+
+                    existing_urls = {a.get('url') for a in articles if a.get('url')}
+                    added = 0
+                    for item in google_items:
+                        url = item.get('url')
+                        if url and url not in existing_urls:
+                            articles.append(item)
+                            existing_urls.add(url)
+                            added += 1
+                    logger.info("Dutch Google web enrichment merged", added=added, total=len(articles))
+                except Exception as e:
+                    logger.warning("Dutch Google web enrichment failed", error=str(e))
+
+            logger.info(f"Dutch RSS search completed: found {len(articles)} articles (with enrichment)")
             return articles
             
         except Exception as e:

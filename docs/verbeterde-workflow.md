@@ -15,6 +15,7 @@ Workflow
 https://news.google.com/rss/search?q="<BEDRIJFSNAAM>"&hl=nl&gl=NL&ceid=NL:nl
 	•	RSS-items filteren: verwijder paywall-bronnen (NRC, FD, Volkskrant, Telegraaf)
 	•	Overgebleven links optioneel crawlen met Crawl4AI (indien vrij toegankelijk)
+	•	Google Custom Search JSON API voor aanvullende webresultaten (NL voorkeur)
 	5.	News analysis (AI)
 	•	Gebruik RSS-metadata + crawled content van open artikelen
 	6.	Risk assessment
@@ -38,6 +39,7 @@ Workflow
 	•	Google News RSS feed NL (hl=nl&gl=NL)
 	•	Whitelist NL-bronnen (NOS, NU.nl, RTL Z, BNR, regionale omroepen)
 	•	Eventueel zoekfeed met contactpersoon toevoegen
+	•	Google Custom Search JSON API met 'site:.nl' voor aanvullende links (handig voor kleinere bedrijven)
 	•	Crawl alleen de open links
 	5.	Dutch news analysis (AI)
 	•	Combineer RSS + open crawls
