@@ -3,7 +3,7 @@ import json
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from urllib.parse import quote_plus, urlparse
 
 import httpx
@@ -498,9 +498,11 @@ class NewsService:
 
         try:
             # Use simple RSS search (no crawling, fast fetch)
-            articles = await self.rss_search.search_news_simple(
+            rss_articles = await self.rss_search.search_news_simple(
                 company_name=company_name, max_results=max_results
             )
+
+            articles: List[Dict[str, Any]] = rss_articles
 
             # Always enrich with a small Google Custom Search if configured
             if self.google_search:
@@ -518,14 +520,18 @@ class NewsService:
                         if items:
                             google_items.extend(items)
 
-                    existing_urls = {a.get("url") for a in articles if a.get("url")}
+                    # Prepend Google items so they aren't truncated
+                    combined = google_items + articles
+                    existing_urls: Set[str] = set()
+                    articles = []
                     added = 0
-                    for item in google_items:
+                    for item in combined:
                         url = item.get("url")
                         if url and url not in existing_urls:
                             articles.append(item)
                             existing_urls.add(url)
-                            added += 1
+                            if item in google_items:
+                                added += 1
                     logger.info(
                         "Google web enrichment merged for simple search",
                         added=added,
@@ -536,9 +542,12 @@ class NewsService:
                         "Google web enrichment failed for simple search", error=str(e)
                     )
 
+            # Respect max_results to keep processing bounded
+            if len(articles) > max_results:
+                articles = articles[:max_results]
+
             # Quick analysis without deep content processing
             analyzed_articles = []
-            # Analyze all gathered articles to also include Google Search results
             for article in articles:
                 analyzed_article = await self._analyze_article(article, company_name)
                 if (
