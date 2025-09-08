@@ -59,6 +59,11 @@ async def test_initialize_noop(service: LegalService):
     assert await service.initialize() is None
 
 
+def test_robots_allowed_flag_present(service: LegalService):
+    """Service exposes robots_allowed flag for legacy callers."""
+    assert service.robots_allowed is True
+
+
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------

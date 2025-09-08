@@ -23,7 +23,9 @@ attempting to extract KvK numbers.
 
 The class also exposes an asynchronous :meth:`initialize` coroutine that does
 not perform any work but is kept for backwards compatibility with older parts
-of the application that expect to await it during start‑up.
+of the application that expect to await it during start‑up.  Likewise the
+attribute :attr:`robots_allowed` is retained and always ``True`` since this
+minimal implementation does not inspect ``robots.txt``.
 
 The data supplied by Rechtspraak can be anonymised.  This service therefore
 offers best‑effort searching only; absence of results is no guarantee that a
@@ -260,6 +262,11 @@ class LegalService:
         self.cursor: Optional[str] = self._load_cursor()
 
         self.user_agent = "VHM-LegalService/1.0"
+
+        # Backwards compatibility flag used by earlier implementations that
+        # inspected robots.txt.  The current lightweight version does not
+        # perform such a check and therefore always allows requests.
+        self.robots_allowed = True
 
     # --------------------------- lifecycle -----------------------------
     async def initialize(self) -> None:
