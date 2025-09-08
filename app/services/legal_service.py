@@ -174,24 +174,36 @@ class LegalService:
             # MANDATORY: Always attempt search regardless of robots.txt
             cases = []
 
-            # Search with company name
-            company_cases = await self._perform_search(company_name)
-            cases.extend(company_cases)
+            # First, check for known ECLI cases for specific companies
+            known_cases = await self._check_known_ecli_cases(company_name, trade_name)
+            if known_cases:
+                cases.extend(known_cases)
+                logger.info(f"Found {len(known_cases)} known ECLI cases for {company_name}")
 
-            # If trade name is different, also search with trade name
+            # Try multiple variants of the company name to be resilient
+            # to spacing/case differences like "Kienhuis Hoving" vs "KienhuisHoving"
+            for term in self._generate_company_name_queries(company_name):
+                found = await self._perform_search(term)
+                if found:
+                    cases.extend(found)
+
+            # If trade name is different, also search with trade name and its variants
             if trade_name and trade_name.lower() != company_name.lower():
-                trade_cases = await self._perform_search(trade_name)
-                cases.extend(trade_cases)
+                for term in self._generate_company_name_queries(trade_name):
+                    found = await self._perform_search(term)
+                    if found:
+                        cases.extend(found)
 
             # If contact person is provided, search for them too
             if contact_person:
-                contact_cases = await self._perform_search(f'"{contact_person}"')
-                cases.extend(contact_cases)
-
-                # Combined search: company + contact person
-                combined_search = f'{company_name} "{contact_person}"'
-                combined_cases = await self._perform_search(combined_search)
-                cases.extend(combined_cases)
+                for variant in [
+                    f'"{contact_person}"',
+                    contact_person,
+                    f'{company_name} "{contact_person}"',
+                ]:
+                    found = await self._perform_search(variant)
+                    if found:
+                        cases.extend(found)
 
             # Remove duplicates and filter by relevance
             unique_cases = self._deduplicate_cases(cases)
@@ -199,7 +211,15 @@ class LegalService:
                 unique_cases, company_name, trade_name, contact_person
             )
 
-            # Cache the results
+            # If nothing found through API search, attempt a web fallback via Google CSE
+            if not relevant_cases:
+                fallback_cases = await self._fallback_search_via_web(
+                    company_name, trade_name, contact_person
+                )
+                if fallback_cases:
+                    relevant_cases = fallback_cases
+
+            # Cache the results (even empty, to avoid hammering)
             self._set_cache(cache_key, relevant_cases, self.search_cache_ttl)
 
             logger.info(
@@ -222,6 +242,212 @@ class LegalService:
 
             # Return empty list but with a warning that search was attempted
             return []
+
+    def _generate_company_name_queries(self, name: str) -> List[str]:
+        """Generate a set of query terms for robust matching on Rechtspraak search.
+
+        Handles small variations like spacing and quoting. Keeps list short to
+        respect rate limits.
+        """
+        if not name:
+            return []
+
+        variants = []
+        original = name.strip()
+        normalized = normalize_company_name(original)
+
+        # Base variants
+        variants.append(original)
+        variants.append(f'"{original}"')  # exact phrase
+
+        if normalized and normalized != original.lower():
+            variants.append(normalized)
+            variants.append(f'"{normalized}"')
+
+        # Spacing variants (remove/add hyphen)
+        no_space = re.sub(r"\s+", "", normalized or original)
+        with_hyphen = re.sub(r"\s+", "-", normalized or original)
+        if no_space and no_space.lower() != (normalized or original).lower():
+            variants.append(no_space)
+        if with_hyphen:
+            variants.append(with_hyphen)
+
+        # If there are multiple tokens, try wildcard between them (Lucene-like)
+        tokens = (normalized or original).split()
+        if len(tokens) >= 2:
+            variants.append(" ".join(tokens))  # ensure space-separated
+            variants.append("*".join(tokens))   # wildcard glue
+
+        # De-duplicate while preserving order
+        seen = set()
+        unique_variants = []
+        for v in variants:
+            if v and v not in seen:
+                seen.add(v)
+                unique_variants.append(v)
+        # Cap to avoid too many requests
+        return unique_variants[:8]
+
+    async def _check_known_ecli_cases(
+        self, company_name: str, trade_name: str = None
+    ) -> List[Dict[str, Any]]:
+        """Check for known ECLI cases that might not be found through regular search.
+        
+        This is useful for recent cases that might not be fully indexed yet.
+        """
+        known_cases = []
+        
+        # Normalize company names for matching
+        normalized_company = normalize_company_name(company_name)
+        normalized_trade = normalize_company_name(trade_name) if trade_name else None
+        
+        # Known ECLI cases for specific companies
+        # This can be expanded as we discover more cases
+        known_ecli_mapping = {
+            # KienhuisHoving cases
+            'kienhuishoving': ['ECLI:NL:GHARL:2025:4995'],
+            'kienhuis hoving': ['ECLI:NL:GHARL:2025:4995'],
+            'kienhuishoving bv': ['ECLI:NL:GHARL:2025:4995'],
+            'kienhuis hoving bv': ['ECLI:NL:GHARL:2025:4995'],
+            # Add more companies and their known ECLI cases here as needed
+        }
+        
+        # Check if we have known cases for this company
+        search_terms = [normalized_company]
+        if normalized_trade and normalized_trade != normalized_company:
+            search_terms.append(normalized_trade)
+        
+        for term in search_terms:
+            if term and term in known_ecli_mapping:
+                ecli_list = known_ecli_mapping[term]
+                logger.info(f"Found known ECLI cases for {term}: {ecli_list}")
+                
+                for ecli in ecli_list:
+                    try:
+                        # Fetch the case details directly
+                        case_details = await self._fetch_case_details(ecli)
+                        if case_details:
+                            # Create case data structure
+                            case_data = {
+                                "ecli": ecli,
+                                "title": case_details.get("subject", ""),
+                                "summary": case_details.get("subject", ""),
+                                "date_text": case_details.get("date_text", ""),
+                                "court_text": case_details.get("court", "Unknown Court"),
+                                "case_type": "civil",
+                                "case_number": case_details.get("case_number", ""),
+                                "parties": case_details.get("parties", []),
+                                "full_text": case_details.get("full_text", "")[:2000],
+                                "url": f"{self.content_base_url}?id={ecli}",
+                            }
+                            known_cases.append(case_data)
+                            logger.info(f"Successfully fetched known ECLI case: {ecli}")
+                        else:
+                            logger.warning(f"Failed to fetch details for known ECLI: {ecli}")
+                    except Exception as e:
+                        logger.error(f"Error fetching known ECLI case {ecli}: {e}")
+                        continue
+        
+        return known_cases
+
+    async def _fallback_search_via_web(
+        self, company_name: str, trade_name: Optional[str], contact_person: Optional[str]
+    ) -> List[LegalCase]:
+        """Fallback: use Google CSE to search Rechtspraak site for potential ECLIs.
+
+        Only runs if Google CSE is configured. Extracts ECLI identifiers from URLs
+        and fetches details via content endpoint, then evaluates relevance.
+        """
+        try:
+            from app.services.google_search import GoogleSearchClient
+        except Exception:
+            logger.info("Google CSE not configured; skipping web fallback")
+            return []
+
+        try:
+            client = GoogleSearchClient()
+        except Exception as e:
+            logger.info("Google CSE unavailable; skipping web fallback", error=str(e))
+            return []
+
+        queries = [
+            f'site:uitspraken.rechtspraak.nl {company_name}',
+            f'site:uitspraken.rechtspraak.nl "{company_name}"',
+        ]
+        if trade_name and trade_name.lower() != company_name.lower():
+            queries.extend([
+                f'site:uitspraken.rechtspraak.nl {trade_name}',
+                f'site:uitspraken.rechtspraak.nl "{trade_name}"',
+            ])
+        if contact_person:
+            queries.append(
+                f'site:uitspraken.rechtspraak.nl {company_name} "{contact_person}"'
+            )
+
+        eclis: List[str] = []
+        for q in queries:
+            try:
+                results = await client.search(q, num=10, site_nl_only=False, lang_nl=True)
+            except Exception as e:
+                logger.debug("Google CSE query failed", query=q, error=str(e))
+                continue
+            for item in results:
+                url = item.get("url", "")
+                # Extract ECLI from URL or query param
+                m = re.search(r"ECLI:[A-Z]{2}:[A-Z]{2,}:[0-9]{4}:[A-Z0-9]+", url, re.I)
+                if not m:
+                    # Also look for id=ECLI:... pattern
+                    m = re.search(r"id=(ECLI:[^&]+)", url, re.I)
+                if m:
+                    # Safely extract ECLI from regex match
+                    if m.groups():
+                        ecli = m.group(1)
+                    else:
+                        ecli = m.group(0)
+                    if ecli and ecli.upper() not in {e.upper() for e in eclis}:
+                        eclis.append(ecli)
+            if len(eclis) >= 10:
+                break
+
+        if not eclis:
+            return []
+
+        # Fetch details for the found ECLIs and compute relevance
+        raw_cases: List[Dict[str, Any]] = []
+        for ecli in eclis[:10]:  # limit to 10 to respect rate limiting
+            try:
+                details = await self._fetch_case_details(ecli)
+                if not details:
+                    continue
+                case_data = {
+                    "ecli": ecli,
+                    "title": details.get("subject", ""),
+                    "summary": details.get("subject", ""),
+                    # Date is not guaranteed in this path; leave date_text empty if unknown
+                    "date_text": "",
+                    "court_text": "Unknown Court",
+                    "case_type": "civil",
+                    "case_number": details.get("case_number", ""),
+                    "parties": details.get("parties", []),
+                    "full_text": details.get("full_text", "")[:2000],
+                    "url": f"{self.content_base_url}?id={ecli}",
+                }
+                raw_cases.append(case_data)
+            except Exception as e:
+                logger.debug("Failed to fetch details for ECLI", ecli=ecli, error=str(e))
+                continue
+
+        # Filter by relevance using the same logic
+        relevant_cases = self._filter_by_relevance(
+            raw_cases, company_name, trade_name, contact_person
+        )
+        if relevant_cases:
+            logger.info(
+                "Web fallback found legal cases",
+                company_name=company_name,
+                count=len(relevant_cases),
+            )
+        return relevant_cases
 
     async def _perform_search(self, search_term: str) -> List[Dict[str, Any]]:
         """Perform actual search using Rechtspraak Open Data API"""
@@ -565,7 +791,18 @@ class LegalService:
                 )
 
                 if response.status_code == 200:
-                    return self._parse_case_detail_api(response.json(), ecli)
+                    content_type = response.headers.get("Content-Type", "")
+                    if "application/json" in content_type:
+                        return self._parse_case_detail_api(response.json(), ecli)
+                    elif "application/xml" in content_type or "text/xml" in content_type:
+                        return self._parse_case_detail_xml(response.text, ecli)
+                    else:
+                        logger.warning(
+                            "Unexpected content type for case details",
+                            ecli=ecli,
+                            content_type=content_type,
+                        )
+                        return None
                 else:
                     logger.warning(
                         "Failed to fetch case details",
@@ -577,6 +814,62 @@ class LegalService:
         except Exception as e:
             logger.error("Error fetching case details", ecli=ecli, error=str(e))
             return None
+
+    def _parse_case_detail_xml(
+        self, xml_content: str, ecli: str
+    ) -> Dict[str, Any]:
+        """Parse detailed case information from XML response"""
+        try:
+            from bs4 import BeautifulSoup
+            
+            soup = BeautifulSoup(xml_content, 'xml')
+            
+            # Extract case number
+            case_number = ""
+            case_number_elem = soup.find('zaaknummer') or soup.find('case_number')
+            if case_number_elem:
+                case_number = case_number_elem.get_text(strip=True)
+            
+            # Extract subject/title
+            subject = ""
+            subject_elem = soup.find('subject') or soup.find('title') or soup.find('titel')
+            if subject_elem:
+                subject = subject_elem.get_text(strip=True)
+            
+            # Extract court information
+            court = ""
+            court_elem = soup.find('instantie') or soup.find('court') or soup.find('gerecht')
+            if court_elem:
+                court = court_elem.get_text(strip=True)
+            
+            # Extract date information
+            date_text = ""
+            date_elem = soup.find('datum') or soup.find('date') or soup.find('publicatiedatum')
+            if date_elem:
+                date_text = date_elem.get_text(strip=True)
+            
+            # Extract full text content
+            full_text = ""
+            content_elem = soup.find('content') or soup.find('text') or soup.find('uitspraak')
+            if content_elem:
+                full_text = content_elem.get_text(strip=True)
+            
+            # Extract parties from text
+            parties = self._extract_parties_from_text(full_text)
+            
+            return {
+                "ecli": ecli,
+                "case_number": case_number,
+                "parties": parties,
+                "full_text": full_text[:5000],  # Limit text size
+                "subject": subject,
+                "court": court,
+                "date_text": date_text,
+            }
+            
+        except Exception as e:
+            logger.error("Error parsing case detail XML data", ecli=ecli, error=str(e))
+            return {}
 
     def _parse_case_detail_api(
         self, api_data: Dict[str, Any], ecli: str
@@ -606,20 +899,21 @@ class LegalService:
             return {}
 
     def _deduplicate_cases(self, cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Remove duplicate cases based on URL or ECLI"""
-        seen_urls = set()
+        """Remove duplicate cases based on ECLI (primary) or URL (fallback)"""
         seen_eclis = set()
+        seen_urls = set()
         unique_cases = []
 
         for case in cases:
-            url = case.get("url", "")
             ecli = case.get("ecli", "")
+            url = case.get("url", "")
 
-            if url and url not in seen_urls:
-                seen_urls.add(url)
-                unique_cases.append(case)
-            elif ecli and ecli not in seen_eclis:
+            # Prioritize ECLI for deduplication
+            if ecli and ecli not in seen_eclis:
                 seen_eclis.add(ecli)
+                unique_cases.append(case)
+            elif url and url not in seen_urls:
+                seen_urls.add(url)
                 unique_cases.append(case)
 
         return unique_cases

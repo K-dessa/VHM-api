@@ -158,7 +158,7 @@ curl -X POST "http://localhost:8000/analyze-company-simple" \
 | `OPENAI_API_KEY` | - | OpenAI API key for news analysis |
 | `API_KEYS` | - | Comma-separated list of valid API keys |
 | `RATE_LIMIT_REQUESTS` | `100` | Requests per hour per API key |
-| `ANALYSIS_TIMEOUT_STANDARD` | `30` | Timeout for standard analysis (seconds) |
+| `ANALYSIS_TIMEOUT_STANDARD` | `45` | Timeout for standard analysis (seconds) |
 | `ANALYSIS_TIMEOUT_DEEP` | `60` | Timeout for deep analysis (seconds) |
 
 ### Feature Flags

@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 
-from .api.endpoints import analyze, health, status
+from .api.endpoints import analyze, health, status, legal
 from .api.endpoints.status import MetricsCollector
 from .core.config import settings
 from .core.exceptions import (BusinessAnalysisError, CompanyNotFoundError,
@@ -335,6 +335,7 @@ async def internal_server_error_handler(request: Request, exc: Exception):
 app.include_router(health.router, prefix="", tags=["health"])
 app.include_router(analyze.router, prefix="", tags=["analysis"])
 app.include_router(status.router, prefix="", tags=["status"])
+app.include_router(legal.router, prefix="", tags=["analysis"])  # Legal-only route
 
 
 @app.on_event("startup")
@@ -355,7 +356,8 @@ async def startup_event():
         ("GET", "/metrics"),
         ("POST", "/analyze-company"),
         ("POST", "/analyze-company-simple"),
-        ("POST", "/nederlands-bedrijf-analyse")
+        ("POST", "/nederlands-bedrijf-analyse"),
+        ("POST", "/LegalSearch")
     ]
     
     registered_routes = []

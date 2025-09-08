@@ -33,7 +33,8 @@ async def root():
             "status": "/status", 
             "analyze_company": "/analyze-company",
             "analyze_company_simple": "/analyze-company-simple",
-            "nederlands_bedrijf_analyse": "/nederlands-bedrijf-analyse"
+            "nederlands_bedrijf_analyse": "/nederlands-bedrijf-analyse",
+            "legal_search": "/LegalSearch"
         }
     }
 

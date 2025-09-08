@@ -202,11 +202,9 @@ async def analyze_company(
             # Run legal and news services in parallel with timeout
             tasks = []
             
-            # Add legal service if allowed by robots.txt
-            legal_task = None
-            if legal_service.robots_allowed:
-                legal_task = asyncio.create_task(_fetch_legal_findings_by_name(legal_service, request.company_name))
-                tasks.append(legal_task)
+            # Add legal service (always attempt, regardless of robots.txt)
+            legal_task = asyncio.create_task(_fetch_legal_findings_by_name(legal_service, request.company_name))
+            tasks.append(legal_task)
             
             # Add news service if available
             news_task = None
@@ -225,14 +223,14 @@ async def analyze_company(
                 news_analysis = None
                 
                 result_index = 0
-                if legal_task:
-                    legal_result = results[result_index]
-                    if isinstance(legal_result, Exception):
-                        logger.warning("Legal service failed, continuing without legal data", 
-                                     error=str(legal_result))
-                    else:
-                        legal_findings = legal_result
-                    result_index += 1
+                # Process legal service result (always present now)
+                legal_result = results[result_index]
+                if isinstance(legal_result, Exception):
+                    logger.warning("Legal service failed, continuing without legal data", 
+                                 error=str(legal_result))
+                else:
+                    legal_findings = legal_result
+                result_index += 1
                 
                 if news_task:
                     news_result = results[result_index]
@@ -242,12 +240,21 @@ async def analyze_company(
                     else:
                         news_analysis = news_result
             else:
+                # This should not happen anymore since we always have legal_task
                 legal_findings = None
                 news_analysis = None
                 
         except asyncio.TimeoutError:
-            # If timeout occurs, continue with basic info
-            legal_findings = None
+            # If timeout occurs, try to get legal findings with a shorter timeout
+            logger.warning("Analysis timeout occurred, attempting quick legal search")
+            try:
+                legal_findings = await asyncio.wait_for(
+                    _fetch_legal_findings_by_name(legal_service, request.company_name),
+                    timeout=10.0  # Shorter timeout for legal search
+                )
+            except Exception as e:
+                logger.warning("Quick legal search also failed", error=str(e))
+                legal_findings = None
             news_analysis = None
             logger.warning("Analysis timed out, returning partial results", 
                          request_id=request_id, timeout=timeout_seconds)
