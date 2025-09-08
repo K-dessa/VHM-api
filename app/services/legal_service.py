@@ -21,6 +21,10 @@ The service respects a configurable rate limit, retries transient network
 errors with exponential backoff and parses XML documents into plain text while
 attempting to extract KvK numbers.
 
+The class also exposes an asynchronous :meth:`initialize` coroutine that does
+not perform any work but is kept for backwards compatibility with older parts
+of the application that expect to await it during start‑up.
+
 The data supplied by Rechtspraak can be anonymised.  This service therefore
 offers best‑effort searching only; absence of results is no guarantee that a
 company has never appeared in case law.
@@ -256,6 +260,23 @@ class LegalService:
         self.cursor: Optional[str] = self._load_cursor()
 
         self.user_agent = "VHM-LegalService/1.0"
+
+    # --------------------------- lifecycle -----------------------------
+    async def initialize(self) -> None:
+        """Compatibility no-op.
+
+        Older versions of :class:`LegalService` exposed an asynchronous
+        ``initialize`` method which prepared internal state.  The current
+        implementation does not require any setup, but we keep this method so
+        that existing call sites that ``await`` it continue to function
+        without modification.
+
+        Returns
+        -------
+        None
+        """
+
+        return None
 
     # ----------------------------- cursor I/O ----------------------------
     def _load_cursor(self) -> Optional[str]:

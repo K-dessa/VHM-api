@@ -49,6 +49,17 @@ def test_extract_kvk_numbers():
 
 
 # ---------------------------------------------------------------------------
+# Initialization
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_initialize_noop(service: LegalService):
+    """``initialize`` exists for backwards compatibility and does nothing."""
+    assert await service.initialize() is None
+
+
+# ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
 
