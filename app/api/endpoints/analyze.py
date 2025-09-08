@@ -187,8 +187,8 @@ async def analyze_company(
             business_activities=web_content.business_activities if web_content else [],
             employee_count=None,
             website=web_content.website_url if web_content else None,
-            email=web_content.contact_info.get('email') if web_content else None,
-            phone=web_content.contact_info.get('phone') if web_content else None,
+            email=web_content.contact_info.get('email') if web_content and hasattr(web_content, 'contact_info') and web_content.contact_info else None,
+            phone=web_content.contact_info.get('phone') if web_content and hasattr(web_content, 'contact_info') and web_content.contact_info else None,
             status="Active" if web_content else "Unknown"
         )
         
@@ -670,8 +670,8 @@ async def _fetch_legal_findings_by_name(legal_service: LegalService, company_nam
     try:
         # Search for legal cases using company name
         cases = await legal_service.search_company_cases(
-            company_name, 
-            company_name  # Use same name for both official and trade name
+            company_name=company_name,
+            contact_person=None  # Don't use contact person for company search
         )
         
         if not cases:

@@ -243,7 +243,12 @@ class LegalService:
                 return []
 
             # Parse API response to extract cases
-            search_results = await self._parse_api_results(api_response)
+            if isinstance(api_response, dict) and "results" in api_response:
+                # This is from _parse_atom_xml_response
+                search_results = api_response.get("results", [])
+            else:
+                # This is from JSON API response
+                search_results = await self._parse_api_results(api_response)
 
         except Exception as e:
             logger.error(
@@ -286,6 +291,18 @@ class LegalService:
                                 response_text=response.text[:1000],
                             )
                             return None
+                    elif "application/atom+xml" in content_type or "application/xml" in content_type:
+                        # Parse Atom XML response
+                        try:
+                            return self._parse_atom_xml_response(response.text)
+                        except Exception as e:
+                            logger.warning(
+                                "API search response Atom XML parse error",
+                                params=params,
+                                error=str(e),
+                                response_text=response.text[:1000],
+                            )
+                            return None
                     else:
                         logger.warning(
                             "Unexpected content type from API search",
@@ -307,6 +324,140 @@ class LegalService:
             except Exception as e:
                 logger.error("API search request error", params=params, error=str(e))
                 raise
+
+    def _parse_date_from_text(self, date_text: str) -> Optional[datetime]:
+        """Parse date from various text formats."""
+        if not date_text:
+            return None
+        
+        # Common date formats in Atom XML
+        date_formats = [
+            "%Y-%m-%dT%H:%M:%SZ",  # ISO format with Z
+            "%Y-%m-%dT%H:%M:%S.%fZ",  # ISO format with microseconds
+            "%Y-%m-%dT%H:%M:%S",  # ISO format without Z
+            "%Y-%m-%d",  # Simple date format
+            "%d-%m-%Y",  # Dutch date format
+            "%d/%m/%Y",  # Alternative Dutch format
+        ]
+        
+        # Clean the date text
+        date_text = date_text.strip()
+        
+        # Try each format
+        for fmt in date_formats:
+            try:
+                return datetime.strptime(date_text, fmt)
+            except ValueError:
+                continue
+        
+        # Try to extract year from text if other formats fail
+        year_match = re.search(r'\b(20\d{2})\b', date_text)
+        if year_match:
+            year = int(year_match.group(1))
+            # Assume January 1st if only year is found
+            return datetime(year, 1, 1)
+        
+        return None
+
+    def _is_within_last_three_years(self, date_obj: Optional[datetime]) -> bool:
+        """Check if date is within the last 3 years."""
+        if not date_obj:
+            return False
+        
+        # Calculate 3 years ago from today
+        current_date = datetime.now()
+        three_years_ago = datetime(current_date.year - 3, current_date.month, current_date.day)
+        return date_obj >= three_years_ago
+
+    def _parse_atom_xml_response(self, xml_content: str) -> Dict[str, Any]:
+        """Parse Atom XML response from Rechtspraak.nl API."""
+        try:
+            from bs4 import BeautifulSoup
+            
+            soup = BeautifulSoup(xml_content, 'xml')
+            
+            # Extract feed information
+            feed_title = soup.find('title')
+            feed_title_text = feed_title.text if feed_title else "Rechtspraak Search Results"
+            
+            # Find all entries (cases)
+            entries = soup.find_all('entry')
+            results = []
+            
+            for entry in entries:
+                try:
+                    # Extract case information from Atom entry
+                    title_elem = entry.find('title')
+                    title = title_elem.text if title_elem else ""
+                    
+                    # Extract ECLI from id or link
+                    id_elem = entry.find('id')
+                    ecli = ""
+                    if id_elem:
+                        ecli = id_elem.text
+                        # Extract ECLI from URL if it's a URL
+                        if ecli.startswith('http'):
+                            # Extract ECLI from URL like: https://data.rechtspraak.nl/uitspraken/content?id=ECLI:NL:...
+                            if 'id=' in ecli:
+                                ecli = ecli.split('id=')[1]
+                    
+                    # Extract summary/description
+                    summary_elem = entry.find('summary') or entry.find('content')
+                    summary = summary_elem.text if summary_elem else ""
+                    
+                    # Extract publication date
+                    published_elem = entry.find('published') or entry.find('updated')
+                    date_text = published_elem.text if published_elem else ""
+                    
+                    # Parse and validate date (only include cases from last 3 years)
+                    parsed_date = self._parse_date_from_text(date_text)
+                    if not self._is_within_last_three_years(parsed_date):
+                        logger.debug(f"Skipping case {ecli} - date {date_text} is older than 3 years")
+                        continue
+                    
+                    # Extract links
+                    link_elem = entry.find('link')
+                    url = link_elem.get('href') if link_elem else ""
+                    
+                    # Extract categories (case types)
+                    categories = []
+                    for category in entry.find_all('category'):
+                        if category.get('term'):
+                            categories.append(category.get('term'))
+                    
+                    # Create case data structure
+                    case_data = {
+                        "ecli": ecli,
+                        "title": title,
+                        "summary": summary,
+                        "date_text": date_text,
+                        "parsed_date": parsed_date,  # Add parsed date for later use
+                        "url": url,
+                        "case_type": categories[0] if categories else "civil",
+                        "categories": categories,
+                        "court_text": "Unknown Court",  # Not available in Atom feed
+                        "case_number": "Unknown",  # Not available in Atom feed
+                        "parties": [],  # Would need to parse from summary
+                        "full_text": summary[:2000]  # Use summary as full text
+                    }
+                    
+                    results.append(case_data)
+                    
+                except Exception as e:
+                    logger.debug(f"Error parsing individual Atom entry: {e}")
+                    continue
+            
+            logger.info(f"Parsed {len(results)} cases from Atom XML response")
+            
+            return {
+                "results": results,
+                "feed_title": feed_title_text,
+                "total_results": len(results)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error parsing Atom XML response: {e}")
+            return {"results": [], "feed_title": "Parse Error", "total_results": 0}
 
     async def _parse_api_results(
         self, api_response: Dict[str, Any]
@@ -353,6 +504,12 @@ class LegalService:
             title = case_data.get("title", case_data.get("subject", ""))
             date_str = case_data.get("date", case_data.get("modified", ""))
 
+            # Parse and validate date (only include cases from last 3 years)
+            parsed_date = self._parse_date_from_text(date_str)
+            if not self._is_within_last_three_years(parsed_date):
+                logger.debug(f"Skipping case {case_data.get('ecli', 'unknown')} - date {date_str} is older than 3 years")
+                return None
+
             # Extract court information
             court = case_data.get("spatial", case_data.get("court", "Unknown Court"))
 
@@ -378,6 +535,7 @@ class LegalService:
                 "ecli": ecli,
                 "title": title,
                 "date_text": date_str,
+                "parsed_date": parsed_date,  # Add parsed date for later use
                 "court_text": court,
                 "case_type": case_type.lower(),
                 "case_number": case_number,
@@ -482,7 +640,7 @@ class LegalService:
                     case_data, company_name, trade_name, contact_person
                 )
 
-                if relevance_score >= 0.6:  # Minimum threshold
+                if relevance_score >= 0.1:  # Very low threshold to catch more cases
                     legal_case = self._convert_to_legal_case(case_data, relevance_score)
                     if legal_case:
                         relevant_cases.append(legal_case)

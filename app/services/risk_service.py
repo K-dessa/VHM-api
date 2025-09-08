@@ -163,7 +163,7 @@ class RiskService:
 
                 if case_severity > 0.6:
                     serious_cases += 1
-                    factors.append(f"Serious case: {case.case_type} ({case.date})")
+                    factors.append(f"Serious case: {case.type} ({case.date})")
 
                 # Extract financial penalties
                 if "boete" in case.summary.lower() or "€" in case.summary:
@@ -390,7 +390,7 @@ class RiskService:
             operational_issues = 0
             for case in legal_findings:
                 if any(
-                    keyword in case.case_type.lower()
+                    keyword in case.type.lower()
                     for keyword in [
                         "arbeidsrecht",
                         "employment",
@@ -491,7 +491,7 @@ class RiskService:
         high_severity_types = ["criminal", "fraud", "bankruptcy", "administrative"]
         medium_severity_types = ["civil", "contract", "employment"]
 
-        case_type_lower = case.case_type.lower()
+        case_type_lower = case.type.lower()
         if any(hs in case_type_lower for hs in high_severity_types):
             severity += 0.7
         elif any(ms in case_type_lower for ms in medium_severity_types):
