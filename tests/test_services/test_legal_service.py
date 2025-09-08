@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 from datetime import datetime
 
 from app.services.legal_service import LegalService
+from app.api.endpoints.analyze import _fetch_legal_findings_by_name
 from app.models.response_models import LegalCase
 from app.utils.text_utils import (
     normalize_company_name,
@@ -69,6 +70,24 @@ async def test_search_company_cases_integration(legal_service):
     assert cases[0].ecli == "ECLI:NL:TEST:2024:1"
     assert legal_service.last_results_count == 3
     assert legal_service.last_match_count == 1
+
+
+@pytest.mark.asyncio
+async def test_no_match_sets_unknown_risk(legal_service):
+    atom_xml = (
+        "<?xml version='1.0' encoding='utf-8'?><feed xmlns='http://www.w3.org/2005/Atom'>"
+        "<entry><id>ECLI:NL:TEST:2024:10</id><title>ECLI:NL:TEST:2024:10, Court A, 2024-01-01, Title A</title></entry>"
+        "</feed>"
+    )
+    details = {"ECLI:NL:TEST:2024:10": {"summary": "Geen partij genoemd", "full_text": "", "case_number": "10", "parties": []}}
+
+    with patch.object(LegalService, "_fetch_api_search", new=AsyncMock(return_value=atom_xml)):
+        with patch.object(LegalService, "_fetch_case_details", new=AsyncMock(side_effect=lambda ecli: details[ecli])):
+            cases = await legal_service.search_company_cases("ING Bank N.V.")
+
+    assert cases == []
+    lf = await _fetch_legal_findings_by_name(legal_service, "ING Bank N.V.")
+    assert lf.risk_level == "unknown"
 
 
 def test_deduplicate_cases(legal_service):

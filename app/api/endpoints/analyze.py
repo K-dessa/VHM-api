@@ -223,34 +223,70 @@ async def analyze_company(
                 
                 legal_findings = None
                 news_analysis = None
-                
+
                 result_index = 0
                 if legal_task:
                     legal_result = results[result_index]
                     if isinstance(legal_result, Exception):
-                        logger.warning("Legal service failed, continuing without legal data", 
-                                     error=str(legal_result))
+                        logger.warning(
+                            "Legal service failed, continuing without legal data",
+                            error=str(legal_result),
+                        )
+                        legal_findings = LegalFindings(
+                            total_cases=0,
+                            risk_level="unknown",
+                            cases=[],
+                            search_window=None,
+                            results_count=0,
+                        )
                     else:
                         legal_findings = legal_result
                     result_index += 1
-                
+                else:
+                    legal_findings = LegalFindings(
+                        total_cases=0,
+                        risk_level="unknown",
+                        cases=[],
+                        search_window=None,
+                        results_count=0,
+                    )
+
                 if news_task:
                     news_result = results[result_index]
                     if isinstance(news_result, Exception):
-                        logger.warning("News service failed, continuing without news data", 
-                                     error=str(news_result))
+                        logger.warning(
+                            "News service failed, continuing without news data",
+                            error=str(news_result),
+                        )
                     else:
                         news_analysis = news_result
+                else:
+                    news_analysis = None
             else:
-                legal_findings = None
+                legal_findings = LegalFindings(
+                    total_cases=0,
+                    risk_level="unknown",
+                    cases=[],
+                    search_window=None,
+                    results_count=0,
+                )
                 news_analysis = None
                 
         except asyncio.TimeoutError:
             # If timeout occurs, continue with basic info
-            legal_findings = None
+            legal_findings = LegalFindings(
+                total_cases=0,
+                risk_level="unknown",
+                cases=[],
+                search_window=None,
+                results_count=0,
+            )
             news_analysis = None
-            logger.warning("Analysis timed out, returning partial results", 
-                         request_id=request_id, timeout=timeout_seconds)
+            logger.warning(
+                "Analysis timed out, returning partial results",
+                request_id=request_id,
+                timeout=timeout_seconds,
+            )
         
         # Create integrated risk assessment using the RiskService
         risk_assessment_obj = risk_service.calculate_overall_risk(
@@ -682,10 +718,10 @@ async def _fetch_legal_findings_by_name(legal_service: LegalService, company_nam
 
         if legal_service.last_search_failed:
             risk_level = "unknown"
+        elif cases:
+            risk_level = legal_service.assess_legal_risk(cases)
         else:
-            risk_level = (
-                legal_service.assess_legal_risk(cases) if cases else "low"
-            )
+            risk_level = "unknown"
 
         return LegalFindings(
             total_cases=len(cases),

@@ -293,6 +293,19 @@ class CrawlService:
             crawled_pages = []
             visited_urls = set()
             to_visit = [(base_url, 0)]  # (url, depth)
+            base_domain = urlparse(base_url).netloc
+            allowed_domains = {
+                base_domain,
+                "nieuws.ing.com",
+                "newsroom.ing.com",
+                "www.ing.com",
+            }
+            allowed_paths = [
+                "/zakelijk",
+                "/over/nieuws-en-pers",
+                "/nieuws",
+                "/newsroom",
+            ]
 
             async with crawler as session:
                 while to_visit and len(crawled_pages) < max_pages:
@@ -317,23 +330,34 @@ class CrawlService:
 
                         if result.success and result.markdown:
                             # Create CrawledContent object
-                            # Extract title from markdown or use default
                             title = "Untitled"
                             if hasattr(result, "title") and result.title:
                                 title = result.title
                             elif result.markdown:
-                                # Try to extract title from markdown
                                 lines = result.markdown.split("\n")
-                                for line in lines[:10]:  # Check first 10 lines
+                                for line in lines[:10]:
                                     if line.startswith("# "):
                                         title = line[2:].strip()
                                         break
+
+                            raw_links = getattr(result, "links", []) or []
+                            filtered_links = []
+                            for link in raw_links:
+                                absolute = urljoin(current_url, link)
+                                parsed = urlparse(absolute)
+                                if parsed.netloc not in allowed_domains:
+                                    continue
+                                if not any(parsed.path.lower().startswith(p) for p in allowed_paths):
+                                    continue
+                                filtered_links.append(absolute)
+                                if absolute not in visited_urls:
+                                    to_visit.append((absolute, depth + 1))
 
                             crawled_content = CrawledContent(
                                 url=current_url,
                                 title=title,
                                 content=result.markdown,
-                                links=[],  # Simplify for now - links parsing has issues
+                                links=filtered_links,
                                 crawl_timestamp=time.time(),
                                 content_length=len(result.markdown),
                                 language="nl"
@@ -350,9 +374,6 @@ class CrawlService:
                             )
 
                             crawled_pages.append(crawled_content)
-
-                            # For simple mode or depth 1, don't crawl additional pages
-                            # This avoids complexity with link parsing for now
 
                         # Small delay between requests to be respectful
                         await asyncio.sleep(1)

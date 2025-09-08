@@ -10,6 +10,7 @@ import httpx
 import structlog
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
+import asyncio
 
 from app.core.config import settings
 from app.models.response_models import (
@@ -63,10 +64,23 @@ class RSSNewsSearch:
             # Build RSS feed URL
             rss_url = await self._build_rss_url(company_name, dutch_focus)
 
-            # Fetch RSS feed
-            rss_articles = await self._fetch_rss_feed(
-                rss_url, max_results if simple_mode else max_results * 2
-            )
+            # Fetch RSS feed with retry and fallback
+            try:
+                rss_articles = await self._fetch_rss_feed(
+                    rss_url, max_results if simple_mode else max_results * 2
+                )
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 503:
+                    logger.warning("RSS 503 -> fallback used", url=rss_url)
+                    rss_articles = await self._fetch_fallback_feeds(
+                        company_name, max_results
+                    )
+                else:
+                    logger.error(f"RSS news search failed: {e}")
+                    rss_articles = []
+            except Exception as e:
+                logger.error(f"RSS news search failed: {e}")
+                rss_articles = []
 
             # Filter paywall sources if needed
             if dutch_focus:
@@ -105,60 +119,107 @@ class RSSNewsSearch:
     async def _fetch_rss_feed(
         self, rss_url: str, max_items: int = 20
     ) -> List[Dict[str, Any]]:
-        """
-        Fetch and parse RSS feed from Google News.
-        """
-        try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout, headers={"User-Agent": self.user_agent}
-            ) as client:
-                response = await client.get(rss_url)
+        """Fetch and parse RSS feed from Google News with retry."""
+        delay = 1
+        last_response: Optional[httpx.Response] = None
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout, headers={"User-Agent": self.user_agent}
+                ) as client:
+                    last_response = await client.get(rss_url)
 
-                if response.status_code != 200:
-                    logger.warning(f"RSS feed fetch failed: {response.status_code}")
+                if last_response.status_code == 200:
+                    root = ET.fromstring(last_response.text)
+                    articles = []
+                    for item in root.findall(".//item")[:max_items]:
+                        title_elem = item.find("title")
+                        link_elem = item.find("link")
+                        pub_date_elem = item.find("pubDate")
+                        description_elem = item.find("description")
+
+                        if title_elem is not None and link_elem is not None:
+                            source = self._extract_source_from_url(link_elem.text or "")
+                            pub_date = self._parse_rss_date(
+                                pub_date_elem.text if pub_date_elem is not None else ""
+                            )
+                            article = {
+                                "title": title_elem.text or "",
+                                "url": link_elem.text or "",
+                                "source": source,
+                                "date": pub_date,
+                                "content": description_elem.text or ""
+                                if description_elem is not None
+                                else "",
+                            }
+                            articles.append(article)
+
+                    logger.info(f"Fetched {len(articles)} articles from RSS feed")
+                    return articles
+
+                elif last_response.status_code == 503:
+                    logger.warning("RSS feed fetch returned 503", attempt=attempt + 1)
+                else:
+                    logger.warning(
+                        f"RSS feed fetch failed: {last_response.status_code}"
+                    )
                     return []
 
-                # Parse RSS XML
-                root = ET.fromstring(response.text)
-                articles = []
+            except ET.ParseError as e:
+                logger.error(f"RSS XML parsing error: {e}")
+                return []
+            except Exception as e:
+                logger.error(f"RSS feed fetch error: {e}")
 
-                # Find all item elements in the RSS feed
+            await asyncio.sleep(delay)
+            delay *= 2
+
+        if last_response and last_response.status_code == 503:
+            raise httpx.HTTPStatusError(
+                "503 Service Unavailable", request=last_response.request, response=last_response
+            )
+        return []
+
+    async def _fetch_fallback_feeds(self, company_name: str, max_items: int) -> List[Dict[str, Any]]:
+        """Fetch articles from company fallback RSS feeds."""
+        fallback_urls = [
+            "https://nieuws.ing.com/rss",
+            "https://newsroom.ing.com/rss",
+        ]
+        articles: List[Dict[str, Any]] = []
+        for url in fallback_urls:
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout, headers={"User-Agent": self.user_agent}
+                ) as client:
+                    resp = await client.get(url)
+                if resp.status_code != 200:
+                    continue
+                root = ET.fromstring(resp.text)
                 for item in root.findall(".//item")[:max_items]:
                     title_elem = item.find("title")
                     link_elem = item.find("link")
                     pub_date_elem = item.find("pubDate")
-                    description_elem = item.find("description")
-
-                    if title_elem is not None and link_elem is not None:
-                        # Extract source from link
-                        source = self._extract_source_from_url(link_elem.text or "")
-
-                        # Parse publication date
-                        pub_date = self._parse_rss_date(
+                    if title_elem is None or link_elem is None:
+                        continue
+                    article = {
+                        "title": title_elem.text or "",
+                        "url": link_elem.text or "",
+                        "source": self._extract_source_from_url(link_elem.text or ""),
+                        "date": self._parse_rss_date(
                             pub_date_elem.text if pub_date_elem is not None else ""
-                        )
-
-                        article = {
-                            "title": title_elem.text or "",
-                            "url": link_elem.text or "",
-                            "source": source,
-                            "date": pub_date,
-                            "content": description_elem.text or ""
-                            if description_elem is not None
-                            else "",
-                        }
-
-                        articles.append(article)
-
-                logger.info(f"Fetched {len(articles)} articles from RSS feed")
-                return articles
-
-        except ET.ParseError as e:
-            logger.error(f"RSS XML parsing error: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"RSS feed fetch error: {e}")
-            return []
+                        ),
+                        "content": item.findtext("description", default=""),
+                    }
+                    articles.append(article)
+                if articles:
+                    logger.info(
+                        f"Fetched {len(articles)} articles from fallback feed", feed=url
+                    )
+                    return articles
+            except Exception as e:
+                logger.warning("Fallback RSS fetch failed", feed=url, error=str(e))
+        return articles
 
     def _extract_source_from_url(self, url: str) -> str:
         """Extract source domain from URL."""

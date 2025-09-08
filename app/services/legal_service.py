@@ -155,7 +155,13 @@ class LegalService:
                 if not details:
                     continue
 
-                text_to_check = f"{details.get('summary', '')} {details.get('full_text', '')}"
+                text_to_check = " ".join(
+                    [
+                        details.get("summary", ""),
+                        details.get("full_text", ""),
+                        details.get("raw_text", ""),
+                    ]
+                )
                 if self._match_party_name(text_to_check, company_name, trade_name):
                     match_count += 1
                     case_data = {
@@ -181,6 +187,7 @@ class LegalService:
                 "Found ECLIs and matched parties",
                 ecli_count=self.last_results_count,
                 matches=match_count,
+                legal_findings=len(cases),
             )
 
             self._set_cache(cache_key, cases, self.search_cache_ttl)
@@ -205,35 +212,43 @@ class LegalService:
         """Retrieve recent ECLIs from the Rechtspraak index."""
 
         results: List[Dict[str, Any]] = []
-        max_results = 100
+        max_per_call = 100
 
         try:
             await self._enforce_rate_limit()
 
             end_date = datetime.utcnow().date()
             start_date = end_date - timedelta(days=730)
-
-            params: List[tuple] = [
-                ("date", start_date.strftime("%Y-%m-%d")),
-                ("date", end_date.strftime("%Y-%m-%d")),
-                ("return", "DOC"),
-                ("max", str(max_results)),
-                ("sort", "DESC"),
-            ]
-
-            if filters:
-                for key, value in filters.items():
-                    params.append((key, value))
-
-            api_response = await self._fetch_api_search(params)
-
             self.last_search_window = (start_date, end_date)
 
-            if not api_response:
-                self.last_results_count = 0
-                return []
+            offset = 0
+            while offset < 1000:  # fetch up to 1000 items
+                params: List[tuple] = [
+                    ("date", start_date.strftime("%Y-%m-%d")),
+                    ("date", end_date.strftime("%Y-%m-%d")),
+                    ("return", "DOC"),
+                    ("max", str(max_per_call)),
+                    ("from", str(offset)),
+                    ("sort", "DESC"),
+                ]
 
-            results = self._parse_atom_index(api_response)
+                if filters:
+                    for key, value in filters.items():
+                        params.append((key, value))
+
+                api_response = await self._fetch_api_search(params)
+
+                if not api_response:
+                    break
+
+                batch = self._parse_atom_index(api_response)
+                results.extend(batch)
+
+                if len(batch) < max_per_call:
+                    break
+
+                offset += max_per_call
+
             self.last_results_count = len(results)
 
         except Exception as e:
@@ -410,10 +425,18 @@ class LegalService:
 
                 if response.status_code == 200:
                     content_type = response.headers.get("Content-Type", "")
+                    raw_text = response.text
+                    details: Dict[str, Any]
                     if "application/json" in content_type:
-                        return self._parse_case_detail_api(response.json(), ecli)
+                        details = self._parse_case_detail_api(response.json(), ecli)
                     else:
-                        return self._parse_case_detail_xml(response.text, ecli)
+                        details = self._parse_case_detail_xml(raw_text, ecli)
+
+                    if not details:
+                        details = {"ecli": ecli, "raw_text": raw_text}
+                    else:
+                        details.setdefault("raw_text", raw_text)
+                    return details
                 else:
                     logger.warning(
                         "Failed to fetch case details",
@@ -477,14 +500,11 @@ class LegalService:
                     p.text.strip() for p in summary_elem.findall('.//rs:para', ns) if p.text
                 )
 
-            full_text = ""
-            uitspraak_elem = root.find('.//rs:uitspraak', ns)
-            if uitspraak_elem is not None:
-                full_text = " ".join(
-                    p.text.strip() for p in uitspraak_elem.findall('.//rs:para', ns) if p.text
-                )
-
+            full_text = " ".join(t.strip() for t in root.itertext() if t.strip())
             parties = self._extract_parties_from_text(full_text)
+
+            if not summary and full_text:
+                summary = full_text[:500]
 
             return {
                 "ecli": ecli,
