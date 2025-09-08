@@ -10,7 +10,6 @@ import httpx
 import structlog
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
-import asyncio
 
 from app.core.config import settings
 from app.models.response_models import (
@@ -64,23 +63,10 @@ class RSSNewsSearch:
             # Build RSS feed URL
             rss_url = await self._build_rss_url(company_name, dutch_focus)
 
-            # Fetch RSS feed with retry and fallback
-            try:
-                rss_articles = await self._fetch_rss_feed(
-                    rss_url, max_results if simple_mode else max_results * 2
-                )
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 503:
-                    logger.warning("RSS 503 -> fallback used", url=rss_url)
-                    rss_articles = await self._fetch_fallback_feeds(
-                        company_name, max_results
-                    )
-                else:
-                    logger.error(f"RSS news search failed: {e}")
-                    rss_articles = []
-            except Exception as e:
-                logger.error(f"RSS news search failed: {e}")
-                rss_articles = []
+            # Fetch RSS feed
+            rss_articles = await self._fetch_rss_feed(
+                rss_url, max_results if simple_mode else max_results * 2
+            )
 
             # Filter paywall sources if needed
             if dutch_focus:
@@ -119,115 +105,60 @@ class RSSNewsSearch:
     async def _fetch_rss_feed(
         self, rss_url: str, max_items: int = 20
     ) -> List[Dict[str, Any]]:
-        """Fetch and parse RSS feed from Google News with retry."""
-        delay = 1
-        last_response: Optional[httpx.Response] = None
-        for attempt in range(3):
-            try:
-                async with httpx.AsyncClient(
-                    timeout=self.timeout, headers={"User-Agent": self.user_agent}
-                ) as client:
-                    last_response = await client.get(rss_url)
+        """
+        Fetch and parse RSS feed from Google News.
+        """
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers={"User-Agent": self.user_agent}
+            ) as client:
+                response = await client.get(rss_url)
 
-                if last_response.status_code == 200:
-                    root = ET.fromstring(last_response.text)
-                    articles = []
-                    for item in root.findall(".//item")[:max_items]:
-                        title_elem = item.find("title")
-                        link_elem = item.find("link")
-                        pub_date_elem = item.find("pubDate")
-                        description_elem = item.find("description")
-
-                        if title_elem is not None and link_elem is not None:
-                            source = self._extract_source_from_url(link_elem.text or "")
-                            pub_date = self._parse_rss_date(
-                                pub_date_elem.text if pub_date_elem is not None else ""
-                            )
-                            article = {
-                                "title": title_elem.text or "",
-                                "url": link_elem.text or "",
-                                "source": source,
-                                "date": pub_date,
-                                "content": description_elem.text or ""
-                                if description_elem is not None
-                                else "",
-                            }
-                            articles.append(article)
-
-                    logger.info(f"Fetched {len(articles)} articles from RSS feed")
-                    return articles
-
-                elif last_response.status_code == 503:
-                    logger.warning("RSS feed fetch returned 503", attempt=attempt + 1)
-                else:
-                    logger.warning(
-                        f"RSS feed fetch failed: {last_response.status_code}"
-                    )
+                if response.status_code != 200:
+                    logger.warning(f"RSS feed fetch failed: {response.status_code}")
                     return []
 
-            except ET.ParseError as e:
-                logger.error(f"RSS XML parsing error: {e}")
-                return []
-            except Exception as e:
-                logger.error(f"RSS feed fetch error: {e}")
+                # Parse RSS XML
+                root = ET.fromstring(response.text)
+                articles = []
 
-            await asyncio.sleep(delay)
-            delay *= 2
-
-        if last_response and last_response.status_code == 503:
-            raise httpx.HTTPStatusError(
-                "503 Service Unavailable", request=last_response.request, response=last_response
-            )
-        return []
-
-    async def _fetch_fallback_feeds(self, company_name: str, max_items: int) -> List[Dict[str, Any]]:
-        """Fetch articles from company fallback RSS feeds concurrently."""
-        fallback_urls = [
-            "https://nieuws.ing.com/rss",
-            "https://newsroom.ing.com/rss",
-        ]
-
-        async def fetch(url: str) -> List[Dict[str, Any]]:
-            try:
-                async with httpx.AsyncClient(
-                    timeout=self.timeout, headers={"User-Agent": self.user_agent}
-                ) as client:
-                    resp = await client.get(url)
-                if resp.status_code != 200:
-                    return []
-                root = ET.fromstring(resp.text)
-                articles: List[Dict[str, Any]] = []
+                # Find all item elements in the RSS feed
                 for item in root.findall(".//item")[:max_items]:
                     title_elem = item.find("title")
                     link_elem = item.find("link")
                     pub_date_elem = item.find("pubDate")
-                    if title_elem is None or link_elem is None:
-                        continue
-                    articles.append(
-                        {
+                    description_elem = item.find("description")
+
+                    if title_elem is not None and link_elem is not None:
+                        # Extract source from link
+                        source = self._extract_source_from_url(link_elem.text or "")
+
+                        # Parse publication date
+                        pub_date = self._parse_rss_date(
+                            pub_date_elem.text if pub_date_elem is not None else ""
+                        )
+
+                        article = {
                             "title": title_elem.text or "",
                             "url": link_elem.text or "",
-                            "source": self._extract_source_from_url(link_elem.text or ""),
-                            "date": self._parse_rss_date(
-                                pub_date_elem.text if pub_date_elem is not None else ""
-                            ),
-                            "content": item.findtext("description", default=""),
+                            "source": source,
+                            "date": pub_date,
+                            "content": description_elem.text or ""
+                            if description_elem is not None
+                            else "",
                         }
-                    )
-                if articles:
-                    logger.info(
-                        "Fetched %d articles from fallback feed", len(articles), feed=url
-                    )
-                return articles
-            except Exception as e:
-                logger.warning("Fallback RSS fetch failed", feed=url, error=str(e))
-                return []
 
-        results = await asyncio.gather(*(fetch(url) for url in fallback_urls))
-        for articles in results:
-            if articles:
+                        articles.append(article)
+
+                logger.info(f"Fetched {len(articles)} articles from RSS feed")
                 return articles
-        return []
+
+        except ET.ParseError as e:
+            logger.error(f"RSS XML parsing error: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"RSS feed fetch error: {e}")
+            return []
 
     def _extract_source_from_url(self, url: str) -> str:
         """Extract source domain from URL."""
@@ -319,16 +250,26 @@ class RSSNewsSearch:
             # Import Crawl4AI here to avoid dependency issues if not installed
             from crawl4ai import AsyncWebCrawler
 
+            enhanced_articles = []
+            crawl_count = 0
             max_crawls = min(5, len(articles))  # Limit crawling for performance
 
             async with AsyncWebCrawler(
                 headless=True, verbose=False, user_agent=self.user_agent
             ) as crawler:
-                async def process(article: Dict[str, Any]) -> Dict[str, Any]:
+                for article in articles:
+                    if crawl_count >= max_crawls:
+                        # Add remaining articles without crawling
+                        enhanced_articles.append(article)
+                        continue
+
                     url = article.get("url", "")
                     if not url:
-                        return article
+                        enhanced_articles.append(article)
+                        continue
+
                     try:
+                        # Attempt to crawl the article
                         result = await crawler.arun(
                             url=url,
                             word_count_threshold=50,
@@ -337,23 +278,23 @@ class RSSNewsSearch:
                             magic=True,
                             markdown=True,
                         )
-                        if result.success and result.markdown:
-                            article["content"] = result.markdown[:3000]
-                            logger.debug("Successfully crawled content from: %s", url)
-                        else:
-                            logger.debug("Failed to crawl content from: %s", url)
-                    except Exception as e:
-                        logger.warning("Crawling failed for %s: %s", url, e)
-                    return article
 
-                tasks = [process(a) for a in articles[:max_crawls]]
-                crawled = await asyncio.gather(*tasks)
-                enhanced_articles = crawled + articles[max_crawls:]
+                        if result.success and result.markdown:
+                            # Update article with crawled content
+                            article["content"] = result.markdown[:3000]  # Limit length
+                            logger.debug(f"Successfully crawled content from: {url}")
+                        else:
+                            logger.debug(f"Failed to crawl content from: {url}")
+
+                        enhanced_articles.append(article)
+                        crawl_count += 1
+
+                    except Exception as e:
+                        logger.warning(f"Crawling failed for {url}: {e}")
+                        enhanced_articles.append(article)
 
             logger.info(
-                "Content crawling: enhanced %d out of %d articles",
-                len(tasks),
-                len(articles),
+                f"Content crawling: enhanced {crawl_count} out of {len(articles)} articles"
             )
             return enhanced_articles
 
@@ -506,17 +447,12 @@ class NewsService:
                 company_name, search_params, contact_person
             )
 
-            # Analyze sentiment and relevance for each article concurrently
-            analysis_tasks = [
-                self._analyze_article(article, company_name) for article in search_results
-            ]
-            results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
-            analyzed_articles: List[NewsArticle] = []
-            for res in results:
-                if isinstance(res, Exception):
-                    logger.warning("Article analysis failed", error=str(res))
-                elif res:
-                    analyzed_articles.append(res)
+            # Analyze sentiment and relevance for each article
+            analyzed_articles = []
+            for article in search_results:
+                analyzed_article = await self._analyze_article(article, company_name)
+                if analyzed_article:
+                    analyzed_articles.append(analyzed_article)
 
             # Filter by relevance threshold (more inclusive for Dutch sources)
             relevant_articles = [
@@ -675,17 +611,12 @@ class NewsService:
                 company_name, search_params, contact_person
             )
 
-            # Analyze sentiment and relevance for each article concurrently
-            analysis_tasks = [
-                self._analyze_article(article, company_name) for article in search_results
-            ]
-            results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
-            analyzed_articles: List[NewsArticle] = []
-            for res in results:
-                if isinstance(res, Exception):
-                    logger.warning("Article analysis failed", error=str(res))
-                elif res:
-                    analyzed_articles.append(res)
+            # Analyze sentiment and relevance for each article
+            analyzed_articles = []
+            for article in search_results:
+                analyzed_article = await self._analyze_article(article, company_name)
+                if analyzed_article:
+                    analyzed_articles.append(analyzed_article)
 
             # Filter by relevance threshold (lowered from 0.6 to 0.4 for more inclusive results)
             relevant_articles = [
