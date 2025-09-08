@@ -2,12 +2,10 @@ import asyncio
 import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
-from urllib.parse import urljoin, urlparse, parse_qs
 import re
 import hashlib
 
 import httpx
-from bs4 import BeautifulSoup
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -17,14 +15,12 @@ from tenacity import (
 import structlog
 
 from app.core.config import settings
-from app.core.exceptions import TimeoutError, RateLimitError
 from app.models.response_models import LegalCase, LegalFindings
 from app.utils.text_utils import (
     normalize_company_name,
     calculate_similarity,
     match_company_variations,
 )
-from app.utils.web_utils import is_path_allowed, get_crawl_delay
 
 logger = structlog.get_logger(__name__)
 
@@ -46,43 +42,15 @@ class LegalService:
         self.search_cache_ttl = 1800  # 30 minutes
         self.case_cache_ttl = 86400  # 24 hours
 
-        # Robots.txt compliance
+        # Robots.txt compliance - always allowed for public API
         self.robots_allowed = True
-        self.crawl_delay = 1.0
+        self.crawl_delay = self.rate_limit_delay
 
         logger.info("Legal service initialized", base_url=self.api_base_url)
 
     async def initialize(self):
-        """Initialize service by checking robots.txt compliance"""
-        try:
-            await self._check_robots_compliance()
-        except Exception as e:
-            logger.warning("Failed to check robots.txt compliance", error=str(e))
-
-    async def _check_robots_compliance(self):
-        """Check robots.txt and set compliance parameters"""
-        try:
-            robots_url = f"{self.api_base_url}/robots.txt"
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(
-                    robots_url, headers={"User-Agent": self.user_agent}
-                )
-                if response.status_code == 200:
-                    robots_txt = response.text
-                    self.robots_allowed = is_path_allowed(
-                        "/Uitspraken/", self.user_agent, robots_txt
-                    )
-                    crawl_delay = get_crawl_delay(robots_txt)
-                    if crawl_delay:
-                        self.crawl_delay = max(crawl_delay, self.rate_limit_delay)
-
-                    logger.info(
-                        "Robots.txt compliance checked",
-                        allowed=self.robots_allowed,
-                        crawl_delay=self.crawl_delay,
-                    )
-        except Exception as e:
-            logger.warning("Could not fetch robots.txt", error=str(e))
+        """Initialize service (no robots.txt check needed for API)"""
+        logger.info("Legal service initialization complete", api_base_url=self.api_base_url)
 
     async def _enforce_rate_limit(self):
         """Enforce rate limiting between requests"""
@@ -217,7 +185,6 @@ class LegalService:
                 "Legal search failed but this was still a mandatory attempt",
                 company_name=company_name,
                 error=str(e),
-                robots_allowed=self.robots_allowed,
             )
 
             # Return empty list but with a warning that search was attempted
@@ -459,6 +426,8 @@ class LegalService:
 
             if url and url not in seen_urls:
                 seen_urls.add(url)
+                if ecli:
+                    seen_eclis.add(ecli)
                 unique_cases.append(case)
             elif ecli and ecli not in seen_eclis:
                 seen_eclis.add(ecli)
