@@ -230,7 +230,7 @@ class LegalService:
         """Fetch search results from Rechtspraak Open Data API"""
         headers = {
             "User-Agent": self.user_agent,
-            "Accept": "application/json",
+            "Accept": "application/atom+xml, application/json",
             "Accept-Language": "nl,en;q=0.5",
         }
 
@@ -253,6 +253,9 @@ class LegalService:
                                 response_text=response.text[:1000],
                             )
                             return None
+                    elif "application/atom+xml" in content_type or "application/xml" in content_type:
+                        # Return raw XML to be parsed separately
+                        return response.text
                     else:
                         logger.warning(
                             "Unexpected content type from API search",
@@ -282,24 +285,84 @@ class LegalService:
         try:
             results = []
 
-            # The API should return a structure with case metadata
-            # Exact structure depends on the actual API response format
-            cases = api_response.get("results", [])
-            if not cases and "docs" in api_response:
-                cases = api_response["docs"]
-            if not cases and isinstance(api_response, list):
-                cases = api_response
+            # When the API returns JSON structure
+            if isinstance(api_response, dict):
+                cases = api_response.get("results", [])
+                if not cases and "docs" in api_response:
+                    cases = api_response["docs"]
+                if not cases and isinstance(api_response, list):
+                    cases = api_response
 
-            for case_data in cases[:20]:  # Limit to first 20 results
+                for case_data in cases[:20]:  # Limit to first 20 results
+                    try:
+                        case_info = await self._extract_case_from_api_data(case_data)
+                        if case_info:
+                            results.append(case_info)
+                    except Exception as e:
+                        logger.debug(
+                            "Error parsing individual API result item", error=str(e)
+                        )
+                        continue
+            else:
+                # Assume XML string (Atom feed)
+                import xml.etree.ElementTree as ET
+
                 try:
-                    case_info = await self._extract_case_from_api_data(case_data)
-                    if case_info:
-                        results.append(case_info)
+                    root = ET.fromstring(api_response)
                 except Exception as e:
-                    logger.debug(
-                        "Error parsing individual API result item", error=str(e)
-                    )
-                    continue
+                    logger.error("Failed to parse XML response", error=str(e))
+                    return []
+
+                ns = {"atom": "http://www.w3.org/2005/Atom"}
+                entries = root.findall("atom:entry", ns)
+
+                for entry in entries[:20]:
+                    try:
+                        ecli = entry.findtext("atom:id", default="", namespaces=ns)
+                        title_text = entry.findtext("atom:title", default="", namespaces=ns)
+                        summary = entry.findtext("atom:summary", default="", namespaces=ns)
+                        updated = entry.findtext("atom:updated", default="", namespaces=ns)
+
+                        # Extract link to public detail page
+                        link = ""
+                        for l in entry.findall("atom:link", ns):
+                            if l.attrib.get("rel") == "alternate":
+                                link = l.attrib.get("href", "")
+                                break
+
+                        # Parse court and date from title if present
+                        court = ""
+                        date_text = updated[:10] if updated else ""
+                        title = title_text
+                        parts = title_text.split(",")
+                        if parts:
+                            # first part is often ECLI
+                            if not ecli:
+                                ecli = parts[0].strip()
+                            if len(parts) > 1:
+                                court = parts[1].strip()
+                            if len(parts) > 2:
+                                date_text = parts[2].strip()
+                            if len(parts) > 3:
+                                title = ",".join(parts[3:]).strip() or title_text
+
+                        case_data = {
+                            "identifier": ecli,
+                            "title": title,
+                            "date": date_text,
+                            "spatial": court,
+                            "summary": summary,
+                            "link": link,
+                        }
+
+                        case_info = await self._extract_case_from_api_data(case_data)
+                        if case_info:
+                            results.append(case_info)
+                    except Exception as e:
+                        logger.debug(
+                            "Error parsing individual Atom entry", error=str(e)
+                        )
+                        continue
 
             logger.debug("Parsed API search results", count=len(results))
             return results
@@ -333,6 +396,7 @@ class LegalService:
             full_text = ""
             parties = []
             case_number = ""
+            summary = case_data.get("summary", title)
 
             if ecli:
                 case_details = await self._fetch_case_details(ecli)
@@ -340,6 +404,7 @@ class LegalService:
                     full_text = case_details.get("full_text", "")
                     parties = case_details.get("parties", [])
                     case_number = case_details.get("case_number", "")
+                    summary = case_details.get("summary", summary)
 
             return {
                 "ecli": ecli,
@@ -349,7 +414,7 @@ class LegalService:
                 "case_type": case_type.lower(),
                 "case_number": case_number,
                 "parties": parties,
-                "summary": title[:500],  # Use title as summary initially
+                "summary": summary[:500],
                 "full_text": full_text[:2000],  # Limit full text
                 "url": case_url,
             }
@@ -368,13 +433,20 @@ class LegalService:
             params = {"id": ecli, "return": "DOC"}  # Return full document
 
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                headers = {"User-Agent": self.user_agent, "Accept": "application/json"}
+                headers = {
+                    "User-Agent": self.user_agent,
+                    "Accept": "application/xml, application/json",
+                }
                 response = await client.get(
                     self.content_base_url, params=params, headers=headers
                 )
 
                 if response.status_code == 200:
-                    return self._parse_case_detail_api(response.json(), ecli)
+                    content_type = response.headers.get("Content-Type", "")
+                    if "application/json" in content_type:
+                        return self._parse_case_detail_api(response.json(), ecli)
+                    else:
+                        return self._parse_case_detail_xml(response.text, ecli)
                 else:
                     logger.warning(
                         "Failed to fetch case details",
@@ -412,6 +484,51 @@ class LegalService:
 
         except Exception as e:
             logger.error("Error parsing case detail API data", ecli=ecli, error=str(e))
+            return {}
+
+    def _parse_case_detail_xml(self, xml_text: str, ecli: str) -> Dict[str, Any]:
+        """Parse detailed case information from Rechtspraak XML response"""
+        try:
+            import xml.etree.ElementTree as ET
+
+            root = ET.fromstring(xml_text)
+            ns = {
+                "psi": "http://psi.rechtspraak.nl/",
+                "rs": "http://www.rechtspraak.nl/schema/rechtspraak-1.0",
+                "dcterms": "http://purl.org/dc/terms/",
+            }
+
+            case_number = ""
+            case_elem = root.find('.//psi:zaaknummer', ns)
+            if case_elem is not None and case_elem.text:
+                case_number = case_elem.text
+
+            summary = ""
+            summary_elem = root.find('.//rs:inhoudsindicatie', ns)
+            if summary_elem is not None:
+                summary = " ".join(
+                    p.text.strip() for p in summary_elem.findall('.//rs:para', ns) if p.text
+                )
+
+            full_text = ""
+            uitspraak_elem = root.find('.//rs:uitspraak', ns)
+            if uitspraak_elem is not None:
+                full_text = " ".join(
+                    p.text.strip() for p in uitspraak_elem.findall('.//rs:para', ns) if p.text
+                )
+
+            parties = self._extract_parties_from_text(full_text)
+
+            return {
+                "ecli": ecli,
+                "case_number": case_number,
+                "parties": parties,
+                "full_text": full_text[:5000],
+                "summary": summary,
+            }
+
+        except Exception as e:
+            logger.error("Error parsing case detail XML", ecli=ecli, error=str(e))
             return {}
 
     def _deduplicate_cases(self, cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

@@ -23,17 +23,17 @@ def legal_service():
 
 
 @pytest.mark.asyncio
-async def test_fetch_api_search_success(legal_service):
-    """LegalService._fetch_api_search returns JSON on success."""
+async def test_fetch_api_search_atom_success(legal_service):
+    """_fetch_api_search returns raw XML when Atom feed is received."""
     with patch("httpx.AsyncClient") as mock_client:
         mock_resp = Mock()
         mock_resp.status_code = 200
-        mock_resp.headers = {"Content-Type": "application/json"}
-        mock_resp.json.return_value = {"results": []}
+        mock_resp.headers = {"Content-Type": "application/atom+xml"}
+        mock_resp.text = "<feed></feed>"
         mock_client.return_value.__aenter__.return_value.get.return_value = mock_resp
 
         result = await legal_service._fetch_api_search({"q": "test"})
-        assert result == {"results": []}
+        assert result == "<feed></feed>"
 
 
 @pytest.mark.asyncio
@@ -66,14 +66,39 @@ async def test_extract_case_from_api_data(legal_service):
             "full_text": "content",
             "parties": ["Test Company B.V."],
             "case_number": "12345",
+            "summary": "Samenvatting",
         }),
     ):
         result = await legal_service._extract_case_from_api_data(case_data)
 
     assert result["ecli"] == "ECLI:NL:RBAMS:2023:1234"
     assert result["case_number"] == "12345"
-    assert "full_text" in result
+    assert result["summary"] == "Samenvatting"
 
+
+@pytest.mark.asyncio
+async def test_parse_api_results_atom(legal_service):
+    """Atom XML responses are parsed into case dictionaries."""
+    atom_xml = (
+        "<?xml version='1.0' encoding='utf-8'?>"
+        "<feed xmlns='http://www.w3.org/2005/Atom'>"
+        "<entry>"
+        "<id>ECLI:NL:RBAMS:2023:1234</id>"
+        "<title>ECLI:NL:RBAMS:2023:1234, Rechtbank Amsterdam, 15-03-2023, Titel</title>"
+        "<summary>Samenvatting</summary>"
+        "<updated>2023-03-16T12:00:00Z</updated>"
+        "<link rel='alternate' href='https://uitspraken.rechtspraak.nl/details?id=ECLI:NL:RBAMS:2023:1234'/></entry>"
+        "</feed>"
+    )
+
+    with patch.object(LegalService, "_fetch_case_details", new=AsyncMock(return_value={})):  # avoid extra HTTP
+        results = await legal_service._parse_api_results(atom_xml)
+
+    assert len(results) == 1
+    case = results[0]
+    assert case["ecli"] == "ECLI:NL:RBAMS:2023:1234"
+    assert case["court_text"] == "Rechtbank Amsterdam"
+    assert case["date_text"] == "15-03-2023"
 
 @pytest.mark.asyncio
 async def test_search_company_cases_cached(legal_service):
