@@ -70,7 +70,7 @@ class CompanyAnalysisRequest(BaseModel):
             raise ValueError("Company name must be at least 2 characters long")
         
         # Check for dangerous characters (basic security)
-        dangerous_chars = ['<', '>', '"', "'", '&', '\n', '\r', '\t']
+        dangerous_chars = ['<', '>', '"', "'", '\n', '\r', '\t']
         if any(char in clean_name for char in dangerous_chars):
             raise ValueError("Company name contains invalid characters")
         
@@ -105,7 +105,7 @@ class CompanyAnalysisRequest(BaseModel):
         clean_name = re.sub(r'\s+', ' ', v.strip())
         
         # Check for dangerous characters
-        dangerous_chars = ['<', '>', '"', "'", '&', '\n', '\r', '\t']
+        dangerous_chars = ['<', '>', '"', "'", '\n', '\r', '\t']
         if any(char in clean_name for char in dangerous_chars):
             raise ValueError("Contact person name contains invalid characters")
         
