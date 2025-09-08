@@ -16,11 +16,7 @@ import structlog
 
 from app.core.config import settings
 from app.models.response_models import LegalCase, LegalFindings
-from app.utils.text_utils import (
-    normalize_company_name,
-    calculate_similarity,
-    match_company_variations,
-)
+from app.utils.text_utils import normalize_company_name
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +41,12 @@ class LegalService:
         # Robots.txt compliance - always allowed for public API
         self.robots_allowed = True
         self.crawl_delay = self.rate_limit_delay
+
+        # Metadata from last search
+        self.last_search_window: Optional[tuple] = None
+        self.last_results_count: int = 0
+        self.last_match_count: int = 0
+        self.last_search_failed: bool = False
 
         logger.info("Legal service initialized", base_url=self.api_base_url)
 
@@ -139,29 +141,51 @@ class LegalService:
         )
 
         try:
-            # MANDATORY: Always attempt search regardless of robots.txt
-            # The Rechtspraak Open Data API doesn't support free text queries.
-            # We therefore fetch a recent set of ECLI entries and filter them
-            # locally for relevant party names.
+            self.last_search_failed = False
+            index_entries = await self._perform_search()
+            cases: List[LegalCase] = []
+            match_count = 0
 
-            cases = await self._perform_search()
+            for entry in index_entries:
+                ecli = entry.get("ecli")
+                if not ecli:
+                    continue
 
-            # Remove duplicates and filter by relevance
-            unique_cases = self._deduplicate_cases(cases)
-            relevant_cases = self._filter_by_relevance(
-                unique_cases, company_name, trade_name, contact_person
-            )
+                details = await self._fetch_case_details(ecli)
+                if not details:
+                    continue
 
-            # Cache the results
-            self._set_cache(cache_key, relevant_cases, self.search_cache_ttl)
+                text_to_check = f"{details.get('summary', '')} {details.get('full_text', '')}"
+                if self._match_party_name(text_to_check, company_name, trade_name):
+                    match_count += 1
+                    case_data = {
+                        "ecli": ecli,
+                        "title": entry.get("title", ""),
+                        "date_text": entry.get("date", ""),
+                        "court_text": entry.get("court", ""),
+                        "case_number": details.get("case_number", ""),
+                        "parties": details.get("parties", []),
+                        "summary": details.get(
+                            "summary", entry.get("summary", "")
+                        ),
+                        "full_text": details.get("full_text", ""),
+                        "url": entry.get("public_link", ""),
+                    }
+                    legal_case = self._convert_to_legal_case(case_data, 1.0)
+                    if legal_case:
+                        cases.append(legal_case)
+
+            self.last_match_count = match_count
 
             logger.info(
-                "Legal search completed",
-                company_name=company_name,
-                total_found=len(relevant_cases),
+                "Found ECLIs and matched parties",
+                ecli_count=self.last_results_count,
+                matches=match_count,
             )
 
-            return relevant_cases
+            self._set_cache(cache_key, cases, self.search_cache_ttl)
+
+            return cases
 
         except Exception as e:
             # IMPORTANT: Even if search fails, we log it but don't completely fail
@@ -172,28 +196,27 @@ class LegalService:
                 error=str(e),
             )
 
+            self.last_search_failed = True
+
             # Return empty list but with a warning that search was attempted
             return []
 
     async def _perform_search(self, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        """Retrieve recent ECLIs and associated case info.
+        """Retrieve recent ECLIs from the Rechtspraak index."""
 
-        Because the Rechtspraak API does not support arbitrary text queries,
-        this method fetches a list of recent cases using date filters and later
-        filtering is applied in :meth:`_filter_by_relevance`.
-        """
-        search_results = []
-        max_results = 50  # Limit total results
+        results: List[Dict[str, Any]] = []
+        max_results = 100
 
         try:
             await self._enforce_rate_limit()
 
             end_date = datetime.utcnow().date()
-            start_date = end_date - timedelta(days=365)
+            start_date = end_date - timedelta(days=730)
+
             params: List[tuple] = [
                 ("date", start_date.strftime("%Y-%m-%d")),
                 ("date", end_date.strftime("%Y-%m-%d")),
-                ("return", "DOC"),  # Only cases with documents
+                ("return", "DOC"),
                 ("max", str(max_results)),
                 ("sort", "DESC"),
             ]
@@ -203,16 +226,21 @@ class LegalService:
                     params.append((key, value))
 
             api_response = await self._fetch_api_search(params)
+
+            self.last_search_window = (start_date, end_date)
+
             if not api_response:
+                self.last_results_count = 0
                 return []
 
-            # Parse API response to extract cases
-            search_results = await self._parse_api_results(api_response)
+            results = self._parse_atom_index(api_response)
+            self.last_results_count = len(results)
 
         except Exception as e:
             logger.error("Error during API search", error=str(e))
+            self.last_results_count = 0
 
-        return search_results
+        return results
 
     @retry(
         retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
@@ -277,153 +305,92 @@ class LegalService:
             except Exception as e:
                 logger.error("API search request error", params=params, error=str(e))
                 raise
+    def _parse_atom_index(self, xml_text: str) -> List[Dict[str, Any]]:
+        """Parse Atom XML feed and return basic info per entry."""
+        import xml.etree.ElementTree as ET
 
-    async def _parse_api_results(
-        self, api_response: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
-        """Parse search results from Rechtspraak API JSON response"""
+        results: List[Dict[str, Any]] = []
+
         try:
-            results = []
-
-            # When the API returns JSON structure
-            if isinstance(api_response, dict):
-                cases = api_response.get("results", [])
-                if not cases and "docs" in api_response:
-                    cases = api_response["docs"]
-                if not cases and isinstance(api_response, list):
-                    cases = api_response
-
-                for case_data in cases[:20]:  # Limit to first 20 results
-                    try:
-                        case_info = await self._extract_case_from_api_data(case_data)
-                        if case_info:
-                            results.append(case_info)
-                    except Exception as e:
-                        logger.debug(
-                            "Error parsing individual API result item", error=str(e)
-                        )
-                        continue
-            else:
-                # Assume XML string (Atom feed)
-                import xml.etree.ElementTree as ET
-
-                try:
-                    root = ET.fromstring(api_response)
-                except Exception as e:
-                    logger.error("Failed to parse XML response", error=str(e))
-                    return []
-
-                ns = {"atom": "http://www.w3.org/2005/Atom"}
-                entries = root.findall("atom:entry", ns)
-
-                for entry in entries[:20]:
-                    try:
-                        ecli = entry.findtext("atom:id", default="", namespaces=ns)
-                        title_text = entry.findtext("atom:title", default="", namespaces=ns)
-                        summary = entry.findtext("atom:summary", default="", namespaces=ns)
-                        updated = entry.findtext("atom:updated", default="", namespaces=ns)
-
-                        # Extract link to public detail page
-                        link = ""
-                        for l in entry.findall("atom:link", ns):
-                            if l.attrib.get("rel") == "alternate":
-                                link = l.attrib.get("href", "")
-                                break
-
-                        # Parse court and date from title if present
-                        court = ""
-                        date_text = updated[:10] if updated else ""
-                        title = title_text
-                        parts = title_text.split(",")
-                        if parts:
-                            # first part is often ECLI
-                            if not ecli:
-                                ecli = parts[0].strip()
-                            if len(parts) > 1:
-                                court = parts[1].strip()
-                            if len(parts) > 2:
-                                date_text = parts[2].strip()
-                            if len(parts) > 3:
-                                title = ",".join(parts[3:]).strip() or title_text
-
-                        case_data = {
-                            "identifier": ecli,
-                            "title": title,
-                            "date": date_text,
-                            "spatial": court,
-                            "summary": summary,
-                            "link": link,
-                        }
-
-                        case_info = await self._extract_case_from_api_data(case_data)
-                        if case_info:
-                            results.append(case_info)
-                    except Exception as e:
-                        logger.debug(
-                            "Error parsing individual Atom entry", error=str(e)
-                        )
-                        continue
-
-            logger.debug("Parsed API search results", count=len(results))
+            root = ET.fromstring(xml_text)
+        except Exception as e:
+            logger.error("Failed to parse Atom feed", error=str(e))
             return results
 
-        except Exception as e:
-            logger.error("Error parsing API search results", error=str(e))
-            return []
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
 
-    async def _extract_case_from_api_data(
-        self, case_data: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        """Extract case information from API response data"""
-        try:
-            # Extract ECLI from the API response
-            ecli = case_data.get("identifier", case_data.get("ecli", ""))
+        for entry in root.findall("atom:entry", ns):
+            ecli = entry.findtext("atom:id", default="", namespaces=ns)
+            title_text = entry.findtext("atom:title", default="", namespaces=ns)
+            summary = entry.findtext("atom:summary", default="", namespaces=ns)
+            updated = entry.findtext("atom:updated", default="", namespaces=ns)
 
-            # Extract basic information
-            title = case_data.get("title", case_data.get("subject", ""))
-            date_str = case_data.get("date", case_data.get("modified", ""))
+            link = f"https://uitspraken.rechtspraak.nl/details?id={ecli}"
 
-            # Extract court information
-            court = case_data.get("spatial", case_data.get("court", "Unknown Court"))
+            court = ""
+            date_text = ""
+            title_clean = title_text
+            parts = [p.strip() for p in title_text.split(",")]
+            if len(parts) >= 4:
+                if not ecli:
+                    ecli = parts[0]
+                court = parts[1]
+                date_text = parts[2]
+                title_clean = ",".join(parts[3:]).strip() or title_text
+            elif updated:
+                date_text = updated[:10]
 
-            # Extract case type
-            case_type = case_data.get("type", case_data.get("subject", "civil"))
-
-            # Construct case URL using ECLI
-            case_url = f"{self.content_base_url}?id={ecli}" if ecli else ""
-
-            # Get full case details if ECLI is available
-            full_text = ""
-            parties = []
-            case_number = ""
-            summary = case_data.get("summary", title)
-
-            if ecli:
-                case_details = await self._fetch_case_details(ecli)
-                if case_details:
-                    full_text = case_details.get("full_text", "")
-                    parties = case_details.get("parties", [])
-                    case_number = case_details.get("case_number", "")
-                    summary = case_details.get("summary", summary)
-
-            return {
-                "ecli": ecli,
-                "title": title,
-                "date_text": date_str,
-                "court_text": court,
-                "case_type": case_type.lower(),
-                "case_number": case_number,
-                "parties": parties,
-                "summary": summary[:500],
-                "full_text": full_text[:2000],  # Limit full text
-                "url": case_url,
-            }
-
-        except Exception as e:
-            logger.debug(
-                "Error extracting case information from API data", error=str(e)
+            results.append(
+                {
+                    "ecli": ecli,
+                    "title": title_clean,
+                    "court": court,
+                    "date": date_text,
+                    "summary": summary,
+                    "public_link": link,
+                }
             )
-            return None
+
+        return results
+
+    def _match_party_name(
+        self, text: str, company_name: str, trade_name: str = None
+    ) -> bool:
+        """Check if text mentions the company or its variants."""
+        if not text or not company_name:
+            return False
+
+        text_norm = normalize_company_name(text)
+        variants = set()
+
+        def add_variants(name: str):
+            n = normalize_company_name(name)
+            if not n:
+                return
+            variants.add(n)
+            base = re.sub(
+                r"\b(bv|nv|vof|cv|stichting|vereniging|cooperatie|coöp)\b",
+                "",
+                n,
+            ).strip()
+            if base:
+                variants.add(base)
+                variants.add(base.replace(" ", "-"))
+                words = base.split()
+                if len(words) <= 2:
+                    variants.add(words[0])
+                    variants.add(f"{words[0]} groep")
+
+        add_variants(company_name)
+        if trade_name:
+            add_variants(trade_name)
+
+        for v in variants:
+            if re.search(rf"\b{re.escape(v)}\b", text_norm, re.IGNORECASE):
+                return True
+
+        return False
+
 
     async def _fetch_case_details(self, ecli: str) -> Optional[Dict[str, Any]]:
         """Fetch detailed information for a specific case using ECLI"""
@@ -552,91 +519,6 @@ class LegalService:
 
         return unique_cases
 
-    def _filter_by_relevance(
-        self,
-        cases: List[Dict[str, Any]],
-        company_name: str,
-        trade_name: str = None,
-        contact_person: str = None,
-    ) -> List[LegalCase]:
-        """Filter cases by relevance to the company and convert to LegalCase objects"""
-        relevant_cases = []
-
-        for case_data in cases:
-            try:
-                relevance_score = self._calculate_relevance_score(
-                    case_data, company_name, trade_name, contact_person
-                )
-
-                if relevance_score >= 0.6:  # Minimum threshold
-                    legal_case = self._convert_to_legal_case(case_data, relevance_score)
-                    if legal_case:
-                        relevant_cases.append(legal_case)
-
-            except Exception as e:
-                logger.debug("Error processing case for relevance", error=str(e))
-                continue
-
-        # Sort by relevance score descending
-        relevant_cases.sort(key=lambda x: x.relevance_score, reverse=True)
-
-        return relevant_cases[:20]  # Return top 20 most relevant
-
-    def _calculate_relevance_score(
-        self,
-        case_data: Dict[str, Any],
-        company_name: str,
-        trade_name: str = None,
-        contact_person: str = None,
-    ) -> float:
-        """Calculate relevance score for a case"""
-        score = 0.0
-
-        # Normalize company names for comparison
-        normalized_company = normalize_company_name(company_name)
-        normalized_trade = normalize_company_name(trade_name) if trade_name else None
-
-        # Check title/summary for company name matches
-        text_to_check = f"{case_data.get('title', '')} {case_data.get('summary', '')}"
-        company_matches = match_company_variations(text_to_check, normalized_company)
-
-        if company_matches:
-            score += 0.8  # Strong match in title/summary
-
-        if normalized_trade:
-            trade_matches = match_company_variations(text_to_check, normalized_trade)
-            if trade_matches:
-                score += 0.7
-
-        # Check for contact person mentions
-        if contact_person:
-            contact_person_lower = contact_person.lower()
-            # Check in title, summary and full text
-            full_text_to_check = f"{text_to_check} {case_data.get('full_text', '')}"
-
-            if contact_person_lower in full_text_to_check.lower():
-                score += 0.6  # High relevance if contact person is mentioned
-                logger.info(
-                    f"Contact person '{contact_person}' found in legal case",
-                    case_title=case_data.get("title", "")[:50],
-                )
-
-        # Check parties list if available
-        parties = case_data.get("parties", [])
-        for party in parties:
-            party_similarity = calculate_similarity(
-                normalize_company_name(party), normalized_company
-            )
-            if party_similarity > 0.8:
-                score = max(score, 1.0)  # Exact party match
-            elif party_similarity > 0.6:
-                score = max(score, 0.7)
-
-            # Also check if contact person matches party
-            if contact_person and contact_person.lower() in party.lower():
-                score = max(score, 0.8)  # High relevance for personal involvement
-
-        return min(score, 1.0)
 
     def _convert_to_legal_case(
         self, case_data: Dict[str, Any], relevance_score: float

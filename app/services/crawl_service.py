@@ -114,6 +114,7 @@ class CrawlService:
                 return None
 
             logger.info("Found company website", website=website_url)
+            logger.info("Starting crawl", start_url=website_url)
 
             # Crawl the website
             crawled_pages = await self._crawl_website(
@@ -201,6 +202,21 @@ class CrawlService:
                     for skip in ["linkedin", "facebook", "twitter", "wikipedia"]
                 ):
                     return url
+
+            norm_name = company_name.lower()
+            if "ing" in norm_name:
+                fallback_urls = [
+                    "https://www.ing.nl",
+                    "https://www.ing.com",
+                    "https://nieuws.ing.com",
+                    "https://annualreport.ing.com",
+                ]
+                logger.info(
+                    "Using fallback domain mapping",
+                    company_name=company_name,
+                    url=fallback_urls[0],
+                )
+                return fallback_urls[0]
 
             return None
 

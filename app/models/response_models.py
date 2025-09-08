@@ -12,6 +12,7 @@ class RiskLevel(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+    UNKNOWN = "unknown"
 
 
 class Address(BaseModel):
@@ -107,6 +108,12 @@ class LegalFindings(BaseModel):
     risk_level: str = Field(..., description="Legal risk level (low, medium, high)")
     cases: List[LegalCase] = Field(
         default=[], description="List of relevant legal cases"
+    )
+    search_window: Optional[str] = Field(
+        None, description="Date range used for the search (YYYY-MM-DD to YYYY-MM-DD)"
+    )
+    results_count: Optional[int] = Field(
+        None, description="Number of ECLI entries retrieved before filtering"
     )
 
 

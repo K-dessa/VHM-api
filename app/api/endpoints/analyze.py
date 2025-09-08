@@ -260,7 +260,7 @@ async def analyze_company(
         )
         
         # Convert to legacy format for response compatibility
-        risk_assessment = _convert_risk_assessment_format(risk_assessment_obj)
+        risk_assessment = _convert_risk_assessment_format(risk_assessment_obj, legal_findings)
         
         # Calculate processing time
         processing_time = time.time() - start_time
@@ -668,27 +668,42 @@ async def _fetch_legal_findings_by_name(legal_service: LegalService, company_nam
         LegalFindings object or None if no cases found
     """
     try:
-        # Search for legal cases using company name
         cases = await legal_service.search_company_cases(
-            company_name, 
-            company_name  # Use same name for both official and trade name
+            company_name,
+            company_name,
         )
-        
-        if not cases:
-            return None
-        
-        # Assess legal risk
-        risk_level = legal_service.assess_legal_risk(cases)
-        
+
+        start_end = legal_service.last_search_window
+        search_window = (
+            f"{start_end[0].strftime('%Y-%m-%d')} to {start_end[1].strftime('%Y-%m-%d')}"
+            if start_end
+            else None
+        )
+
+        if legal_service.last_search_failed:
+            risk_level = "unknown"
+        else:
+            risk_level = (
+                legal_service.assess_legal_risk(cases) if cases else "low"
+            )
+
         return LegalFindings(
             total_cases=len(cases),
             risk_level=risk_level,
-            cases=cases
+            cases=cases,
+            search_window=search_window,
+            results_count=legal_service.last_results_count,
         )
-        
+
     except Exception as e:
         logger.error("Error fetching legal findings", error=str(e))
-        raise
+        return LegalFindings(
+            total_cases=0,
+            risk_level="unknown",
+            cases=[],
+            search_window=None,
+            results_count=0,
+        )
 
 
 
@@ -754,7 +769,7 @@ def _get_analysis_warnings(company_info, request, legal_findings: LegalFindings 
     return warnings
 
 
-def _convert_risk_assessment_format(risk_assessment_obj) -> RiskAssessment:
+def _convert_risk_assessment_format(risk_assessment_obj, legal_findings: LegalFindings = None) -> RiskAssessment:
     """Convert new RiskAssessment format to legacy response format."""
     from ...services.risk_service import RiskLevel as NewRiskLevel
     
@@ -774,14 +789,24 @@ def _convert_risk_assessment_format(risk_assessment_obj) -> RiskAssessment:
     
     all_recommendations = risk_assessment_obj.recommendations
     
-    return RiskAssessment(
+    ra = RiskAssessment(
         overall_risk_level=risk_level_mapping.get(risk_assessment_obj.overall_level, RiskLevel.MEDIUM),
         risk_score=int(risk_assessment_obj.overall_score * 100),  # Convert to 0-100 scale
         risk_factors=all_factors[:10],  # Limit to top 10
         positive_factors=[],  # Legacy format doesn't have separate positive factors
         recommendations=all_recommendations[:8],  # Limit to top 8
-        confidence_level=min([score.confidence for score in risk_assessment_obj.risk_scores if score.confidence is not None and isinstance(score.confidence, (int, float))] or [0.7])
+        confidence_level=min([
+            score.confidence
+            for score in risk_assessment_obj.risk_scores
+            if score.confidence is not None and isinstance(score.confidence, (int, float))
+        ] or [0.7]),
     )
+
+    if not legal_findings or legal_findings.risk_level == "unknown":
+        ra.overall_risk_level = RiskLevel.UNKNOWN
+        ra.confidence_level = min(ra.confidence_level, 0.4)
+
+    return ra
 
 
 def _get_risk_assessment_warnings(risk_assessment_obj) -> list[str]:

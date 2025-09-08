@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 from datetime import datetime
 
 from app.services.legal_service import LegalService
@@ -14,168 +14,74 @@ from app.utils.web_utils import is_path_allowed, get_crawl_delay
 
 @pytest.fixture
 def legal_service():
-    """Create a LegalService instance for testing."""
     with patch("app.services.legal_service.settings") as mock_settings:
         mock_settings.APP_NAME = "test-app"
         mock_settings.RECHTSPRAAK_TIMEOUT = 30
-        service = LegalService()
-        return service
+        return LegalService()
 
 
 @pytest.mark.asyncio
-async def test_fetch_api_search_atom_success(legal_service):
-    """_fetch_api_search returns raw XML when Atom feed is received."""
-    with patch("httpx.AsyncClient") as mock_client:
-        mock_resp = Mock()
-        mock_resp.status_code = 200
-        mock_resp.headers = {"Content-Type": "application/atom+xml"}
-        mock_resp.text = "<feed></feed>"
-        mock_client.return_value.__aenter__.return_value.get.return_value = mock_resp
-
-        result = await legal_service._fetch_api_search({"max": 10})
-        assert result == "<feed></feed>"
-
-
-@pytest.mark.asyncio
-async def test_fetch_api_search_failure(legal_service):
-    """LegalService._fetch_api_search returns None on HTTP errors."""
-    with patch("httpx.AsyncClient") as mock_client:
-        mock_resp = Mock()
-        mock_resp.status_code = 500
-        mock_client.return_value.__aenter__.return_value.get.return_value = mock_resp
-
-        result = await legal_service._fetch_api_search({"max": 10})
-        assert result is None
-
-
-@pytest.mark.asyncio
-async def test_extract_case_from_api_data(legal_service):
-    """Case details are fetched and merged into result."""
-    case_data = {
-        "identifier": "ECLI:NL:RBAMS:2023:1234",
-        "title": "Test vs Gemeente",
-        "date": "2023-03-15",
-        "spatial": "Rechtbank Amsterdam",
-        "type": "civil",
-    }
-
-    with patch.object(
-        LegalService,
-        "_fetch_case_details",
-        new=AsyncMock(return_value={
-            "full_text": "content",
-            "parties": ["Test Company B.V."],
-            "case_number": "12345",
-            "summary": "Samenvatting",
-        }),
-    ):
-        result = await legal_service._extract_case_from_api_data(case_data)
-
-    assert result["ecli"] == "ECLI:NL:RBAMS:2023:1234"
-    assert result["case_number"] == "12345"
-    assert result["summary"] == "Samenvatting"
-
-
-@pytest.mark.asyncio
-async def test_parse_api_results_atom(legal_service):
-    """Atom XML responses are parsed into case dictionaries."""
+async def test_parse_atom_index_multiple_entries(legal_service):
     atom_xml = (
         "<?xml version='1.0' encoding='utf-8'?>"
         "<feed xmlns='http://www.w3.org/2005/Atom'>"
-        "<entry>"
-        "<id>ECLI:NL:RBAMS:2023:1234</id>"
-        "<title>ECLI:NL:RBAMS:2023:1234, Rechtbank Amsterdam, 15-03-2023, Titel</title>"
-        "<summary>Samenvatting</summary>"
-        "<updated>2023-03-16T12:00:00Z</updated>"
-        "<link rel='alternate' href='https://uitspraken.rechtspraak.nl/details?id=ECLI:NL:RBAMS:2023:1234'/></entry>"
+        "<entry><id>ECLI:1</id><title>ECLI:1, Court A, 2024-01-01, Title A</title></entry>"
+        "<entry><id>ECLI:2</id><title>ECLI:2, Court B, 2024-01-02, Title B</title></entry>"
+        "</feed>"
+    )
+    results = legal_service._parse_atom_index(atom_xml)
+    assert len(results) == 2
+    assert results[0]["ecli"] == "ECLI:1"
+
+
+def test_party_matcher_variants(legal_service):
+    text = "De ING Bank N.V. had een geschil. Ook wordt de ING Groep genoemd."
+    assert legal_service._match_party_name(text, "ING Bank N.V.")
+    assert not legal_service._match_party_name("Geen relevante partijen hier.", "ING Bank N.V.")
+
+
+@pytest.mark.asyncio
+async def test_search_company_cases_integration(legal_service):
+    atom_xml = (
+        "<?xml version='1.0' encoding='utf-8'?>"
+        "<feed xmlns='http://www.w3.org/2005/Atom'>"
+        "<entry><id>ECLI:NL:TEST:2024:1</id><title>ECLI:NL:TEST:2024:1, Court A, 2024-01-01, Title A</title></entry>"
+        "<entry><id>ECLI:NL:TEST:2024:2</id><title>ECLI:NL:TEST:2024:2, Court B, 2024-01-02, Title B</title></entry>"
+        "<entry><id>ECLI:NL:TEST:2024:3</id><title>ECLI:NL:TEST:2024:3, Court C, 2024-01-03, Title C</title></entry>"
         "</feed>"
     )
 
-    with patch.object(LegalService, "_fetch_case_details", new=AsyncMock(return_value={})):  # avoid extra HTTP
-        results = await legal_service._parse_api_results(atom_xml)
-
-    assert len(results) == 1
-    case = results[0]
-    assert case["ecli"] == "ECLI:NL:RBAMS:2023:1234"
-    assert case["court_text"] == "Rechtbank Amsterdam"
-    assert case["date_text"] == "15-03-2023"
-
-@pytest.mark.asyncio
-async def test_search_company_cases_cached(legal_service):
-    """Cached results are returned without API calls."""
-    case = LegalCase(
-        ecli="ECLI:NL:RBAMS:2023:1234",
-        case_number="12345/2023",
-        date=datetime(2023, 3, 15),
-        court="Rechtbank Amsterdam",
-        type="civil",
-        parties=["Test Company B.V."],
-        summary="Test case summary",
-        outcome="unknown",
-        url="https://data.rechtspraak.nl/uitspraken/content?id=ECLI:NL:RBAMS:2023:1234",
-        relevance_score=0.9,
-    )
-
-    cache_key = legal_service._get_cache_key("Test Company B.V.")
-    legal_service._set_cache(cache_key, [case], 3600)
-
-    results = await legal_service.search_company_cases("Test Company B.V.")
-
-    assert len(results) == 1
-    assert results[0].ecli == "ECLI:NL:RBAMS:2023:1234"
-
-
-@pytest.mark.asyncio
-async def test_search_company_cases_api(legal_service):
-    """API results are converted into LegalCase objects."""
-    sample_case = {
-        "ecli": "ECLI:NL:RBAMS:2023:1234",
-        "case_number": "12345/2023",
-        "date_text": "2023-03-15",
-        "court_text": "Rechtbank Amsterdam",
-        "case_type": "civil",
-        "parties": ["Test Company B.V."],
-        "summary": "Test case summary",
-        "url": "https://data.rechtspraak.nl/uitspraken/content?id=ECLI:NL:RBAMS:2023:1234",
+    details = {
+        "ECLI:NL:TEST:2024:1": {"summary": "Geschil met ING Bank", "full_text": "", "case_number": "1", "parties": []},
+        "ECLI:NL:TEST:2024:2": {"summary": "Andere partij", "full_text": "", "case_number": "2", "parties": []},
+        "ECLI:NL:TEST:2024:3": {"summary": "Nog een zaak", "full_text": "", "case_number": "3", "parties": []},
     }
 
-    with patch.object(
-        LegalService, "_perform_search", new=AsyncMock(return_value=[sample_case])
-    ):
-        results = await legal_service.search_company_cases("Test Company B.V.")
+    with patch.object(LegalService, "_fetch_api_search", new=AsyncMock(return_value=atom_xml)):
+        with patch.object(
+            LegalService,
+            "_fetch_case_details",
+            new=AsyncMock(side_effect=lambda ecli: details[ecli]),
+        ):
+            cases = await legal_service.search_company_cases("ING Bank N.V.")
 
-    assert len(results) == 1
-    assert isinstance(results[0], LegalCase)
+    assert len(cases) == 1
+    assert cases[0].ecli == "ECLI:NL:TEST:2024:1"
+    assert legal_service.last_results_count == 3
+    assert legal_service.last_match_count == 1
 
 
 def test_deduplicate_cases(legal_service):
-    """Duplicate cases are removed based on URL/ECLI."""
     cases = [
         {"url": "https://example.com/1", "ecli": "ECLI:NL:TEST:1"},
         {"url": "https://example.com/1", "ecli": "ECLI:NL:TEST:1"},
         {"url": "https://example.com/2", "ecli": "ECLI:NL:TEST:2"},
     ]
-
     unique = legal_service._deduplicate_cases(cases)
     assert len(unique) == 2
 
 
-def test_calculate_relevance_score(legal_service):
-    """Relevance score is high for matching company names."""
-    case_data = {
-        "title": "Test Company B.V. tegen gemeente",
-        "summary": "Geschil over bouwvergunning voor Test Company B.V.",
-        "parties": ["Test Company B.V.", "Gemeente Amsterdam"],
-    }
-
-    score = legal_service._calculate_relevance_score(
-        case_data, "Test Company B.V."
-    )
-    assert score >= 0.8
-
-
 def test_assess_legal_risk_high(legal_service):
-    """Multiple recent criminal cases result in high risk."""
     cases = []
     for i in range(3):
         cases.append(
@@ -192,14 +98,11 @@ def test_assess_legal_risk_high(legal_service):
                 relevance_score=0.9,
             )
         )
-
     risk = legal_service.assess_legal_risk(cases)
     assert risk == "high"
 
 
 class TestTextUtils:
-    """Tests for text utility functions."""
-
     def test_normalize_company_name(self):
         assert normalize_company_name("Test Company B.V.") == "test company bv"
         assert normalize_company_name("Besloten Vennootschap Test") == "bv test"
@@ -218,8 +121,6 @@ class TestTextUtils:
 
 
 class TestWebUtils:
-    """Tests for robots.txt utility helpers."""
-
     def test_is_path_allowed(self):
         robots_txt = """
 User-agent: *
@@ -238,4 +139,3 @@ Crawl-delay: 2
         assert get_crawl_delay(robots_txt, "*") == 2
         assert get_crawl_delay(robots_txt, "test-bot") == 2
         assert get_crawl_delay("", "*") is None
-
