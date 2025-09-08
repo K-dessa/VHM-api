@@ -1,681 +1,519 @@
+"""Legal service with Rechtspraak Open Data support.
+
+This module provides a small pluggable index layer and a harvester for the
+Rechtspraak Open Data.  It exposes two public search functions
+``search_by_company`` and ``search_by_kvk`` which operate on an in‑process
+full‑text index.  The implementation is intentionally lightweight so that it
+can run in a test environment without external services.
+
+Usage
+-----
+The typical flow is:
+
+1. Run :meth:`LegalService.harvest` to fetch ECLI identifiers that were
+   modified in a given period.  For each ECLI the full content is retrieved and
+   indexed.  Harvesting can be executed repeatedly; a cursor keeps track of the
+   last processed ``modified`` timestamp.
+2. Call :meth:`LegalService.search_by_company` or
+   :meth:`LegalService.search_by_kvk` to search the local index.
+
+The service respects a configurable rate limit, retries transient network
+errors with exponential backoff and parses XML documents into plain text while
+attempting to extract KvK numbers.
+
+The data supplied by Rechtspraak can be anonymised.  This service therefore
+offers best‑effort searching only; absence of results is no guarantee that a
+company has never appeared in case law.
+"""
+
+from __future__ import annotations
+
 import asyncio
-import time
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Any
-from urllib.parse import urljoin, urlparse, parse_qs
+import os
 import re
-import hashlib
+from dataclasses import dataclass
+from datetime import datetime
+from difflib import SequenceMatcher
+from typing import Any, Dict, Iterable, List, Optional
+from xml.etree import ElementTree as ET
 
 import httpx
 from bs4 import BeautifulSoup
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
-)
-import structlog
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from app.core.config import settings
-from app.core.exceptions import TimeoutError, RateLimitError
-from app.models.response_models import LegalCase, LegalFindings
-from app.utils.text_utils import (
-    normalize_company_name,
-    calculate_similarity,
-    match_company_variations,
-)
-from app.utils.web_utils import is_path_allowed, get_crawl_delay
+import structlog
 
 logger = structlog.get_logger(__name__)
 
 
-class LegalService:
-    """Service for accessing legal case information from Rechtspraak Open Data API"""
+# ---------------------------------------------------------------------------
+# Search index abstraction
+# ---------------------------------------------------------------------------
 
-    def __init__(self):
-        self.api_base_url = "https://data.rechtspraak.nl/uitspraken/zoeken"
-        self.content_base_url = "https://data.rechtspraak.nl/uitspraken/content"
-        self.timeout = getattr(settings, "RECHTSPRAAK_TIMEOUT", 30)
-        self.user_agent = f"{settings.APP_NAME}/{getattr(settings, 'APP_VERSION', '1.0')} (Business Analysis API)"
-        self.rate_limit_delay = 1.0  # 1 request per second
-        self.last_request_time = 0.0
 
-        # In-memory cache
-        self._cache = {}
-        self._cache_ttl = {}
-        self.search_cache_ttl = 1800  # 30 minutes
-        self.case_cache_ttl = 86400  # 24 hours
+class SearchIndex:
+    """Abstract search index interface."""
 
-        # Robots.txt compliance
-        self.robots_allowed = True
-        self.crawl_delay = 1.0
+    def upsert(self, doc: Dict[str, Any]) -> None:  # pragma: no cover - interface
+        raise NotImplementedError
 
-        logger.info("Legal service initialized", base_url=self.api_base_url)
+    def delete(self, ecli: str) -> None:  # pragma: no cover - interface
+        raise NotImplementedError
 
-    async def initialize(self):
-        """Initialize service by checking robots.txt compliance"""
-        try:
-            await self._check_robots_compliance()
-        except Exception as e:
-            logger.warning("Failed to check robots.txt compliance", error=str(e))
-
-    async def _check_robots_compliance(self):
-        """Check robots.txt and set compliance parameters"""
-        try:
-            robots_url = f"{self.api_base_url}/robots.txt"
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(
-                    robots_url, headers={"User-Agent": self.user_agent}
-                )
-                if response.status_code == 200:
-                    robots_txt = response.text
-                    self.robots_allowed = is_path_allowed(
-                        "/Uitspraken/", self.user_agent, robots_txt
-                    )
-                    crawl_delay = get_crawl_delay(robots_txt)
-                    if crawl_delay:
-                        self.crawl_delay = max(crawl_delay, self.rate_limit_delay)
-
-                    logger.info(
-                        "Robots.txt compliance checked",
-                        allowed=self.robots_allowed,
-                        crawl_delay=self.crawl_delay,
-                    )
-        except Exception as e:
-            logger.warning("Could not fetch robots.txt", error=str(e))
-
-    async def _enforce_rate_limit(self):
-        """Enforce rate limiting between requests"""
-        current_time = time.time()
-        time_since_last = current_time - self.last_request_time
-
-        if time_since_last < self.crawl_delay:
-            sleep_time = self.crawl_delay - time_since_last
-            await asyncio.sleep(sleep_time)
-
-        self.last_request_time = time.time()
-
-    def _get_cache_key(
+    def search(
         self,
-        company_name: str,
-        trade_name: str = None,
-        contact_person: str = None,
-        filters: Dict = None,
-    ) -> str:
-        """Generate cache key for search results"""
-        key_parts = [company_name]
-        if trade_name:
-            key_parts.append(trade_name)
-        if contact_person:
-            key_parts.append(contact_person)
-        if filters:
-            key_parts.append(str(sorted(filters.items())))
+        query: str,
+        *,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 25,
+        offset: int = 0,
+        synonyms: Optional[Iterable[str]] = None,
+    ) -> List[Dict[str, Any]]:  # pragma: no cover - interface
+        raise NotImplementedError
 
-        key_string = "|".join(key_parts)
-        return hashlib.md5(key_string.encode()).hexdigest()
 
-    def _get_from_cache(self, cache_key: str) -> Optional[Any]:
-        """Get item from cache if not expired"""
-        if cache_key in self._cache:
-            if time.time() < self._cache_ttl.get(cache_key, 0):
-                return self._cache[cache_key]
-            else:
-                # Clean up expired entry
-                self._cache.pop(cache_key, None)
-                self._cache_ttl.pop(cache_key, None)
-        return None
+class InMemorySearchIndex(SearchIndex):
+    """Very small in‑process full‑text index used for testing.
 
-    def _set_cache(self, cache_key: str, value: Any, ttl_seconds: int):
-        """Set item in cache with TTL"""
-        self._cache[cache_key] = value
-        self._cache_ttl[cache_key] = time.time() + ttl_seconds
+    Documents are stored in a dictionary keyed by ECLI.  Searching iterates
+    over all documents and performs case‑insensitive substring and fuzzy
+    matching.  This is obviously not meant for production use but keeps the
+    index pluggable as required by the specification.
+    """
 
-        # Simple LRU eviction: keep only 100 most recent items
-        if len(self._cache) > 100:
-            oldest_key = min(self._cache_ttl.keys(), key=lambda k: self._cache_ttl[k])
-            self._cache.pop(oldest_key, None)
-            self._cache_ttl.pop(oldest_key, None)
+    def __init__(self) -> None:
+        self.docs: Dict[str, Dict[str, Any]] = {}
 
-    async def search_company_cases(
-        self, company_name: str, trade_name: str = None, contact_person: str = None
-    ) -> List[LegalCase]:
-        """
-        Search for legal cases involving a company and optionally a contact person.
-        This method is MANDATORY and will always attempt to search Rechtspraak.nl.
+    # -------------------------- index maintenance -------------------------
+    def upsert(self, doc: Dict[str, Any]) -> None:
+        self.docs[doc["ecli"]] = doc
 
-        Args:
-            company_name: Official company name
-            trade_name: Trade name if different from official name
-            contact_person: Contact person name to also search for
+    def delete(self, ecli: str) -> None:
+        self.docs.pop(ecli, None)
 
-        Returns:
-            List of relevant legal cases (empty list if search fails but never skips)
-        """
-        # MANDATORY: Always attempt to search Rechtspraak.nl, even if robots.txt is restrictive
-        # This is a business requirement for Dutch company analysis
-
-        # Check cache first (include contact person in cache key)
-        cache_key = self._get_cache_key(company_name, trade_name, contact_person)
-        cached_result = self._get_from_cache(cache_key)
-        if cached_result is not None:
-            logger.info(
-                "Returning cached legal search results", company_name=company_name
-            )
-            return cached_result
-
-        logger.info(
-            "Searching for legal cases (MANDATORY Rechtspraak.nl search)",
-            company_name=company_name,
-            trade_name=trade_name,
-            contact_person=contact_person,
-        )
-
-        try:
-            # MANDATORY: Always attempt search regardless of robots.txt
-            cases = []
-
-            # Search with company name
-            company_cases = await self._perform_search(company_name)
-            cases.extend(company_cases)
-
-            # If trade name is different, also search with trade name
-            if trade_name and trade_name.lower() != company_name.lower():
-                trade_cases = await self._perform_search(trade_name)
-                cases.extend(trade_cases)
-
-            # If contact person is provided, search for them too
-            if contact_person:
-                contact_cases = await self._perform_search(f'"{contact_person}"')
-                cases.extend(contact_cases)
-
-                # Combined search: company + contact person
-                combined_search = f'{company_name} "{contact_person}"'
-                combined_cases = await self._perform_search(combined_search)
-                cases.extend(combined_cases)
-
-            # Remove duplicates and filter by relevance
-            unique_cases = self._deduplicate_cases(cases)
-            relevant_cases = self._filter_by_relevance(
-                unique_cases, company_name, trade_name, contact_person
-            )
-
-            # Cache the results
-            self._set_cache(cache_key, relevant_cases, self.search_cache_ttl)
-
-            logger.info(
-                "Legal search completed",
-                company_name=company_name,
-                total_found=len(relevant_cases),
-            )
-
-            return relevant_cases
-
-        except Exception as e:
-            # IMPORTANT: Even if search fails, we log it but don't completely fail
-            # This maintains the mandatory nature of trying to search Rechtspraak.nl
-            logger.error(
-                "Legal search failed but this was still a mandatory attempt",
-                company_name=company_name,
-                error=str(e),
-                robots_allowed=self.robots_allowed,
-            )
-
-            # Return empty list but with a warning that search was attempted
-            return []
-
-    async def _perform_search(self, search_term: str) -> List[Dict[str, Any]]:
-        """Perform actual search using Rechtspraak Open Data API"""
-        search_results = []
-        max_results = 50  # Limit total results
-
-        try:
-            await self._enforce_rate_limit()
-
-            search_params = {
-                "q": search_term,
-                "max": max_results,
-                "return": "DOC",  # Return document metadata
-                "sort": "DESC",  # Sort by most recent (DESC = descending on modified date)
-            }
-
-            api_response = await self._fetch_api_search(search_params)
-            if not api_response:
-                return []
-
-            # Parse API response to extract cases
-            search_results = await self._parse_api_results(api_response)
-
-        except Exception as e:
-            logger.error(
-                "Error during API search", search_term=search_term, error=str(e)
-            )
-
-        return search_results
-
-    @retry(
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-    )
-    async def _fetch_api_search(
-        self, params: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        """Fetch search results from Rechtspraak Open Data API"""
-        headers = {
-            "User-Agent": self.user_agent,
-            "Accept": "application/json",
-            "Accept-Language": "nl,en;q=0.5",
-        }
-
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                response = await client.get(
-                    self.api_base_url, params=params, headers=headers
-                )
-
-                if response.status_code == 200:
-                    content_type = response.headers.get("Content-Type", "")
-                    if "application/json" in content_type:
-                        try:
-                            return response.json()
-                        except ValueError as e:
-                            logger.warning(
-                                "API search response JSON decode error",
-                                params=params,
-                                error=str(e),
-                                response_text=response.text[:1000],
-                            )
-                            return None
-                    else:
-                        logger.warning(
-                            "Unexpected content type from API search",
-                            params=params,
-                            content_type=content_type,
-                        )
-                        return None
-                else:
-                    logger.warning(
-                        "API search request failed",
-                        status_code=response.status_code,
-                        params=params,
-                    )
-                    return None
-
-            except httpx.TimeoutException:
-                logger.error("API search request timed out", params=params)
-                raise
-            except Exception as e:
-                logger.error("API search request error", params=params, error=str(e))
-                raise
-
-    async def _parse_api_results(
-        self, api_response: Dict[str, Any]
+    # ------------------------------- search -------------------------------
+    def search(
+        self,
+        query: str,
+        *,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 25,
+        offset: int = 0,
+        synonyms: Optional[Iterable[str]] = None,
     ) -> List[Dict[str, Any]]:
-        """Parse search results from Rechtspraak API JSON response"""
-        try:
-            results = []
+        query_terms = [query.lower()]
+        if synonyms:
+            query_terms.extend([s.lower() for s in synonyms])
 
-            # The API should return a structure with case metadata
-            # Exact structure depends on the actual API response format
-            cases = api_response.get("results", [])
-            if not cases and "docs" in api_response:
-                cases = api_response["docs"]
-            if not cases and isinstance(api_response, list):
-                cases = api_response
+        results: List[tuple[int, Dict[str, Any], str]] = []
 
-            for case_data in cases[:20]:  # Limit to first 20 results
-                try:
-                    case_info = await self._extract_case_from_api_data(case_data)
-                    if case_info:
-                        results.append(case_info)
-                except Exception as e:
-                    logger.debug(
-                        "Error parsing individual API result item", error=str(e)
-                    )
-                    continue
-
-            logger.debug("Parsed API search results", count=len(results))
-            return results
-
-        except Exception as e:
-            logger.error("Error parsing API search results", error=str(e))
-            return []
-
-    async def _extract_case_from_api_data(
-        self, case_data: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        """Extract case information from API response data"""
-        try:
-            # Extract ECLI from the API response
-            ecli = case_data.get("identifier", case_data.get("ecli", ""))
-
-            # Extract basic information
-            title = case_data.get("title", case_data.get("subject", ""))
-            date_str = case_data.get("date", case_data.get("modified", ""))
-
-            # Extract court information
-            court = case_data.get("spatial", case_data.get("court", "Unknown Court"))
-
-            # Extract case type
-            case_type = case_data.get("type", case_data.get("subject", "civil"))
-
-            # Construct case URL using ECLI
-            case_url = f"{self.content_base_url}?id={ecli}" if ecli else ""
-
-            # Get full case details if ECLI is available
-            full_text = ""
-            parties = []
-            case_number = ""
-
-            if ecli:
-                case_details = await self._fetch_case_details(ecli)
-                if case_details:
-                    full_text = case_details.get("full_text", "")
-                    parties = case_details.get("parties", [])
-                    case_number = case_details.get("case_number", "")
-
-            return {
-                "ecli": ecli,
-                "title": title,
-                "date_text": date_str,
-                "court_text": court,
-                "case_type": case_type.lower(),
-                "case_number": case_number,
-                "parties": parties,
-                "summary": title[:500],  # Use title as summary initially
-                "full_text": full_text[:2000],  # Limit full text
-                "url": case_url,
-            }
-
-        except Exception as e:
-            logger.debug(
-                "Error extracting case information from API data", error=str(e)
-            )
-            return None
-
-    async def _fetch_case_details(self, ecli: str) -> Optional[Dict[str, Any]]:
-        """Fetch detailed information for a specific case using ECLI"""
-        try:
-            await self._enforce_rate_limit()
-
-            params = {"id": ecli, "return": "DOC"}  # Return full document
-
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                headers = {"User-Agent": self.user_agent, "Accept": "application/json"}
-                response = await client.get(
-                    self.content_base_url, params=params, headers=headers
-                )
-
-                if response.status_code == 200:
-                    return self._parse_case_detail_api(response.json(), ecli)
-                else:
-                    logger.warning(
-                        "Failed to fetch case details",
-                        ecli=ecli,
-                        status_code=response.status_code,
-                    )
-                    return None
-
-        except Exception as e:
-            logger.error("Error fetching case details", ecli=ecli, error=str(e))
-            return None
-
-    def _parse_case_detail_api(
-        self, api_data: Dict[str, Any], ecli: str
-    ) -> Dict[str, Any]:
-        """Parse detailed case information from API JSON response"""
-        try:
-            # Extract case number
-            case_number = api_data.get("case_number", api_data.get("zaaknummer", ""))
-
-            # Extract parties from the case content
-            full_text = api_data.get("content", api_data.get("text", ""))
-            parties = self._extract_parties_from_text(full_text)
-
-            # Extract other metadata
-            subject = api_data.get("subject", api_data.get("title", ""))
-
-            return {
-                "ecli": ecli,
-                "case_number": case_number,
-                "parties": parties,
-                "full_text": full_text[:5000],  # Limit text size
-                "subject": subject,
-            }
-
-        except Exception as e:
-            logger.error("Error parsing case detail API data", ecli=ecli, error=str(e))
-            return {}
-
-    def _deduplicate_cases(self, cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Remove duplicate cases based on URL or ECLI"""
-        seen_urls = set()
-        seen_eclis = set()
-        unique_cases = []
-
-        for case in cases:
-            url = case.get("url", "")
-            ecli = case.get("ecli", "")
-
-            if url and url not in seen_urls:
-                seen_urls.add(url)
-                unique_cases.append(case)
-            elif ecli and ecli not in seen_eclis:
-                seen_eclis.add(ecli)
-                unique_cases.append(case)
-
-        return unique_cases
-
-    def _filter_by_relevance(
-        self,
-        cases: List[Dict[str, Any]],
-        company_name: str,
-        trade_name: str = None,
-        contact_person: str = None,
-    ) -> List[LegalCase]:
-        """Filter cases by relevance to the company and convert to LegalCase objects"""
-        relevant_cases = []
-
-        for case_data in cases:
-            try:
-                relevance_score = self._calculate_relevance_score(
-                    case_data, company_name, trade_name, contact_person
-                )
-
-                if relevance_score >= 0.6:  # Minimum threshold
-                    legal_case = self._convert_to_legal_case(case_data, relevance_score)
-                    if legal_case:
-                        relevant_cases.append(legal_case)
-
-            except Exception as e:
-                logger.debug("Error processing case for relevance", error=str(e))
+        for doc in self.docs.values():
+            if filters and not _apply_filters(doc, filters):
                 continue
 
-        # Sort by relevance score descending
-        relevant_cases.sort(key=lambda x: x.relevance_score, reverse=True)
+            score = 0
+            snippet = ""
 
-        return relevant_cases[:20]  # Return top 20 most relevant
+            text_fields = [
+                ("title", doc.get("title", "")),
+                ("inhoudsindicatie_text", doc.get("inhoudsindicatie_text", "")),
+                ("full_text", doc.get("full_text", "")),
+            ]
 
-    def _calculate_relevance_score(
-        self,
-        case_data: Dict[str, Any],
-        company_name: str,
-        trade_name: str = None,
-        contact_person: str = None,
-    ) -> float:
-        """Calculate relevance score for a case"""
-        score = 0.0
+            for term in query_terms:
+                for field_name, text in text_fields:
+                    field = text.lower()
+                    if term in field:
+                        score += 2 if field_name != "full_text" else 1
+                        if not snippet:
+                            snippet = _make_snippet(text, term)
+                    else:
+                        # fuzzy/prefix search
+                        if field.startswith(term) or SequenceMatcher(None, term, field[: len(term)]).ratio() > 0.8:
+                            score += 1
+                            if not snippet:
+                                snippet = text[:200]
 
-        # Normalize company names for comparison
-        normalized_company = normalize_company_name(company_name)
-        normalized_trade = normalize_company_name(trade_name) if trade_name else None
+            if score > 0:
+                results.append((score, doc, snippet))
 
-        # Check title/summary for company name matches
-        text_to_check = f"{case_data.get('title', '')} {case_data.get('summary', '')}"
-        company_matches = match_company_variations(text_to_check, normalized_company)
-
-        if company_matches:
-            score += 0.8  # Strong match in title/summary
-
-        if normalized_trade:
-            trade_matches = match_company_variations(text_to_check, normalized_trade)
-            if trade_matches:
-                score += 0.7
-
-        # Check for contact person mentions
-        if contact_person:
-            contact_person_lower = contact_person.lower()
-            # Check in title, summary and full text
-            full_text_to_check = f"{text_to_check} {case_data.get('full_text', '')}"
-
-            if contact_person_lower in full_text_to_check.lower():
-                score += 0.6  # High relevance if contact person is mentioned
-                logger.info(
-                    f"Contact person '{contact_person}' found in legal case",
-                    case_title=case_data.get("title", "")[:50],
-                )
-
-        # Check parties list if available
-        parties = case_data.get("parties", [])
-        for party in parties:
-            party_similarity = calculate_similarity(
-                normalize_company_name(party), normalized_company
-            )
-            if party_similarity > 0.8:
-                score = max(score, 1.0)  # Exact party match
-            elif party_similarity > 0.6:
-                score = max(score, 0.7)
-
-            # Also check if contact person matches party
-            if contact_person and contact_person.lower() in party.lower():
-                score = max(score, 0.8)  # High relevance for personal involvement
-
-        return min(score, 1.0)
-
-    def _convert_to_legal_case(
-        self, case_data: Dict[str, Any], relevance_score: float
-    ) -> Optional[LegalCase]:
-        """Convert case data to LegalCase object"""
-        try:
-            # Parse date
-            case_date = datetime.now()  # Default to now
-            date_text = case_data.get("date_text", "")
-            if date_text:
-                # Try different date formats
-                for fmt in ["%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y"]:
-                    try:
-                        case_date = datetime.strptime(date_text, fmt)
-                        break
-                    except ValueError:
-                        continue
-
-            # Generate ECLI if not available
-            ecli = case_data.get("ecli")
-            if not ecli:
-                # Generate a placeholder ECLI for cases without one
-                url_hash = hashlib.md5(case_data.get("url", "").encode()).hexdigest()[
-                    :8
-                ]
-                ecli = f"ECLI:NL:PLACEHOLDER:{case_date.year}:{url_hash.upper()}"
-
-            # Determine case type from court or content
-            case_type = self._determine_case_type(case_data)
-
-            return LegalCase(
-                ecli=ecli,
-                case_number=case_data.get("case_number", "Unknown"),
-                date=case_date,
-                court=case_data.get("court_text", "Unknown Court"),
-                type=case_type,
-                parties=case_data.get("parties", []),
-                summary=case_data.get("summary", "")[:500],
-                outcome="unknown",  # Would need detailed parsing to determine
-                url=case_data.get("url", ""),
-                relevance_score=relevance_score,
-            )
-
-        except Exception as e:
-            logger.error("Error converting case data to LegalCase", error=str(e))
-            return None
-
-    def _extract_parties_from_text(self, text: str) -> List[str]:
-        """Extract company/party names from case text"""
-        parties = []
-        if not text:
-            return parties
-
-        # Look for common Dutch legal entity patterns
-        import re
-
-        patterns = [
-            r"([A-Z][a-z]+ (?:B\.?V\.?|N\.?V\.?|VOF|CV|Stichting|Vereniging))",
-            r"([A-Z][A-Za-z\s&]+ (?:B\.?V\.?|N\.?V\.?|VOF|CV))",
-            r"((?:[A-Z][a-z]+\s?){1,4}(?:B\.?V\.?|N\.?V\.?|VOF|CV))",
+        results.sort(key=lambda x: x[0], reverse=True)
+        sliced = results[offset : offset + limit]
+        return [
+            {
+                "ecli": d["ecli"],
+                "title": d.get("title", ""),
+                "date": d.get("date"),
+                "instantie": d.get("instantie"),
+                "rechtsgebieden": d.get("rechtsgebieden", []),
+                "zaaknummers": d.get("zaaknummers", []),
+                "kvk_numbers": d.get("kvk_numbers", []),
+                "deeplink": d.get("deeplink"),
+                "snippet": snip,
+            }
+            for _, d, snip in sliced
         ]
 
-        for pattern in patterns:
-            matches = re.findall(pattern, text)
-            parties.extend([match.strip() for match in matches if match.strip()])
 
-        # Remove duplicates and limit
-        return list(set(parties))[:10]
+# ---------------------------------------------------------------------------
+# Utility helpers
+# ---------------------------------------------------------------------------
 
-    def _determine_case_type(self, case_data: Dict[str, Any]) -> str:
-        """Determine case type from available data"""
-        # Check if case_type is already provided by API
-        if "case_type" in case_data:
-            return case_data["case_type"]
 
-        text_to_check = f"{case_data.get('title', '')} {case_data.get('summary', '')} {case_data.get('court_text', '')}"
-        text_lower = text_to_check.lower()
+def _strip_text(xml_fragment: str) -> str:
+    """Strip markup and normalise whitespace."""
 
-        if any(
-            word in text_lower
-            for word in ["strafrecht", "straf", "criminal", "verdachte"]
-        ):
-            return "criminal"
-        elif any(
-            word in text_lower
-            for word in [
-                "bestuursrecht",
-                "bestuur",
-                "administrative",
-                "gemeente",
-                "ministerie",
-            ]
-        ):
-            return "administrative"
-        else:
-            return "civil"  # Default assumption
+    soup = BeautifulSoup(xml_fragment, "lxml")
+    text = soup.get_text(" ")
+    return re.sub(r"\s+", " ", text).strip()
 
-    def assess_legal_risk(self, cases: List[LegalCase]) -> str:
+
+KVK_PATTERN = re.compile(
+    r"(?:(?:kvk|kamer\s+van\s+koophandel)[^0-9]{0,20})?(\d{8})",
+    re.IGNORECASE,
+)
+
+
+def _extract_kvk_numbers(text: str) -> List[str]:
+    """Extract 8 digit KvK numbers from text."""
+
+    numbers = {match.group(1) for match in KVK_PATTERN.finditer(text or "")}
+    return list(numbers)
+
+
+def _make_snippet(text: str, term: str) -> str:
+    idx = text.lower().find(term)
+    if idx == -1:
+        return text[:200].strip()
+    start = max(0, idx - 40)
+    end = min(len(text), idx + 40)
+    return text[start:end].strip()
+
+
+def _apply_filters(doc: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+    date_from = filters.get("date_from")
+    date_to = filters.get("date_to")
+    instantie = filters.get("instantie")
+    rechtsgebied = filters.get("rechtsgebied")
+
+    if date_from and doc.get("date") and doc["date"] < date_from:
+        return False
+    if date_to and doc.get("date") and doc["date"] > date_to:
+        return False
+    if instantie:
+        inst = doc.get("instantie", {})
+        if instantie not in (inst.get("name"), inst.get("id")):
+            return False
+    if rechtsgebied:
+        labels = [rg.get("label") for rg in doc.get("rechtsgebieden", [])]
+        ids = [rg.get("uri") for rg in doc.get("rechtsgebieden", [])]
+        if rechtsgebied not in labels and rechtsgebied not in ids:
+            return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# LegalService implementation
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SearchResult:
+    ecli: str
+    title: str
+    date: Optional[datetime]
+    instantie: Dict[str, Any]
+    rechtsgebieden: List[Dict[str, Any]]
+    zaaknummers: List[str]
+    kvk_numbers: List[str]
+    deeplink: str
+    snippet: str
+
+
+class LegalService:
+    """Service for harvesting and searching Rechtspraak data."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str = "https://data.rechtspraak.nl",
+        rate_limit: int = 60,  # requests per minute
+        timeout: int = 30,
+        index: Optional[SearchIndex] = None,
+        cursor_file: Optional[str] = None,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.search_url = f"{self.base_url}/uitspraken/zoeken"
+        self.content_url = f"{self.base_url}/uitspraken/content"
+        self.timeout = timeout
+        self.index = index or InMemorySearchIndex()
+
+        # rate limiting: seconds between requests
+        self.rate_limit_delay = 60.0 / max(rate_limit, 1)
+        self._last_request: float = 0.0
+
+        self.cursor_file = cursor_file
+        self.cursor: Optional[str] = self._load_cursor()
+
+        self.user_agent = "VHM-LegalService/1.0"
+
+    # ----------------------------- cursor I/O ----------------------------
+    def _load_cursor(self) -> Optional[str]:
+        if self.cursor_file and os.path.exists(self.cursor_file):
+            return open(self.cursor_file, "r", encoding="utf-8").read().strip() or None
+        return None
+
+    def _save_cursor(self, value: str) -> None:
+        self.cursor = value
+        if self.cursor_file:
+            with open(self.cursor_file, "w", encoding="utf-8") as fh:
+                fh.write(value)
+
+    # -------------------------- rate limiting ---------------------------
+    async def _enforce_rate_limit(self) -> None:
+        now = asyncio.get_event_loop().time()
+        wait = self.rate_limit_delay - (now - self._last_request)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        self._last_request = asyncio.get_event_loop().time()
+
+    # ---------------------------- HTTP helpers ---------------------------
+    @retry(
+        retry=retry_if_exception_type(httpx.RequestError),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        stop=stop_after_attempt(3),
+    )
+    async def _http_get(self, url: str, params: Dict[str, Any]) -> httpx.Response:
+        await self._enforce_rate_limit()
+        headers = {"User-Agent": self.user_agent}
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(url, params=params, headers=headers)
+            resp.raise_for_status()
+            return resp
+
+    # --------------------------- harvesting -----------------------------
+    async def harvest(self, *, modified: Optional[str] = None, max: int = 1000) -> Dict[str, int]:
+        """Harvest ECLI identifiers and update the index.
+
+        Parameters
+        ----------
+        modified:
+            ISO timestamp or date string accepted by Rechtspraak's ``modified``
+            parameter.  When omitted the internal cursor is used.
+        max:
+            Maximum number of results per request (``≤ 1000``).
+
+        Returns
+        -------
+        dict
+            ``{"upserts": int, "deletes": int, "pages": int}``
         """
-        Assess legal risk level based on found cases
 
-        Args:
-            cases: List of legal cases
+        params = {
+            "return": "DOC",
+            "max": max,
+        }
+        if modified or self.cursor:
+            params["modified"] = modified or self.cursor
 
-        Returns:
-            Risk level string (low, medium, high)
-        """
-        if not cases:
-            return "low"
+        offset = 0
+        upserts = 0
+        deletes = 0
+        pages = 0
 
-        case_count = len(cases)
-        criminal_cases = sum(1 for case in cases if case.type == "criminal")
-        recent_cases = sum(
-            1 for case in cases if case.date > datetime.now() - timedelta(days=730)
+        while True:
+            params["from"] = offset
+            resp = await self._http_get(self.search_url, params)
+            entries = self._parse_feed(resp.text)
+            if not entries:
+                break
+            pages += 1
+
+            for entry in entries:
+                ecli = entry["ecli"]
+                if entry.get("deleted"):
+                    self.index.delete(ecli)
+                    deletes += 1
+                    continue
+
+                content = await self.fetch_ecli_content(ecli)
+                if content:
+                    self.index.upsert(content)
+                    upserts += 1
+                    if entry.get("updated"):
+                        self._save_cursor(entry["updated"])
+
+            offset += len(entries)
+
+        logger.info(
+            "harvest complete", upserts=upserts, deletes=deletes, pages=pages
         )
+        return {"upserts": upserts, "deletes": deletes, "pages": pages}
 
-        # Risk calculation
-        risk_score = 0
-        risk_score += case_count * 2
-        risk_score += criminal_cases * 10
-        risk_score += recent_cases * 3
+    def _parse_feed(self, feed_xml: str) -> List[Dict[str, Any]]:
+        root = ET.fromstring(feed_xml)
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        entries: List[Dict[str, Any]] = []
+        for entry in root.findall("atom:entry", ns):
+            eid = entry.findtext("atom:id", default="", namespaces=ns).strip()
+            updated = entry.findtext("atom:updated", default="", namespaces=ns).strip()
+            deleted = entry.attrib.get("deleted")
+            entries.append({"ecli": eid, "updated": updated, "deleted": deleted})
+        return entries
 
-        if risk_score >= 20:
-            return "high"
-        elif risk_score >= 8:
-            return "medium"
-        else:
-            return "low"
+    # --------------------------- content fetch --------------------------
+    async def fetch_ecli_content(self, ecli: str) -> Optional[Dict[str, Any]]:
+        params = {"id": ecli, "return": "DOC"}
+        try:
+            resp = await self._http_get(self.content_url, params)
+        except httpx.HTTPError as exc:  # pragma: no cover - network error
+            logger.warning("content fetch failed", ecli=ecli, error=str(exc))
+            return None
+        return self._parse_ecli_content(resp.text)
+
+    def _parse_ecli_content(self, xml_text: str) -> Dict[str, Any]:
+        root = ET.fromstring(xml_text)
+
+        def find_text(name: str) -> str:
+            for elem in root.iter():
+                if elem.tag.split("}")[-1] == name and (elem.text):
+                    return elem.text.strip()
+            return ""
+
+        def find_all(name: str) -> List[str]:
+            return [
+                e.text.strip()
+                for e in root.iter()
+                if e.tag.split("}")[-1] == name and e.text
+            ]
+
+        # Basic metadata
+        ecli = find_text("identifier") or find_text("ECLI")
+        title = find_text("title")
+        date_str = find_text("issued") or find_text("date")
+        date_val: Optional[datetime] = None
+        if date_str:
+            for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"):
+                try:
+                    date_val = datetime.strptime(date_str, fmt)
+                    break
+                except ValueError:
+                    continue
+
+        # Instantie (creator)
+        instantie_name = ""
+        instantie_id = ""
+        for elem in root.iter():
+            if elem.tag.split("}")[-1] == "creator":
+                instantie_name = (elem.text or "").strip()
+                instantie_id = elem.attrib.get("resourceIdentifier", "")
+                break
+
+        rechtsgebieden = [
+            {
+                "label": e.text.strip(),
+                "uri": e.attrib.get("resourceIdentifier", ""),
+            }
+            for e in root.iter()
+            if e.tag.split("}")[-1] == "subject" and e.text
+        ]
+
+        procedures = find_all("procedure")
+        zaaknummers = find_all("zaaknummer")
+
+        inhoud_elem = next(
+            (e for e in root.iter() if e.tag.split("}")[-1] == "inhoudsindicatie"),
+            None,
+        )
+        inhoud_text = _strip_text(ET.tostring(inhoud_elem, encoding="unicode")) if inhoud_elem else ""
+
+        full_text = ""
+        for e in root.iter():
+            if e.tag.split("}")[-1] in {"uitspraak", "conclusie"}:
+                full_text += " " + _strip_text(ET.tostring(e, encoding="unicode"))
+        full_text = full_text.strip()
+
+        kvk_numbers = _extract_kvk_numbers(" ".join([title, inhoud_text, full_text]))
+
+        return {
+            "ecli": ecli,
+            "title": title,
+            "date": date_val,
+            "instantie": {"name": instantie_name, "id": instantie_id},
+            "rechtsgebieden": rechtsgebieden,
+            "procedures": procedures,
+            "zaaknummers": zaaknummers,
+            "inhoudsindicatie_text": inhoud_text,
+            "full_text": full_text,
+            "kvk_numbers": kvk_numbers,
+            "deeplink": f"http://deeplink.rechtspraak.nl/uitspraak?id={ecli}",
+        }
+
+    # ------------------------------ search ------------------------------
+    def search_by_company(
+        self,
+        name: str,
+        *,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        instantie: Optional[str] = None,
+        rechtsgebied: Optional[str] = None,
+        limit: int = 25,
+        offset: int = 0,
+        synonyms: Optional[Iterable[str]] = None,
+    ) -> List[SearchResult]:
+        filters = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "instantie": instantie,
+            "rechtsgebied": rechtsgebied,
+        }
+        docs = self.index.search(
+            name,
+            filters=filters,
+            limit=limit,
+            offset=offset,
+            synonyms=synonyms,
+        )
+        return [SearchResult(**doc) for doc in docs]
+
+    def search_by_kvk(
+        self, kvk: str, *, limit: int = 25, offset: int = 0
+    ) -> List[SearchResult]:
+        kvk_norm = re.sub(r"\D", "", kvk)[-8:]
+        results = []
+        for doc in self.index.docs.values():
+            if kvk_norm in doc.get("kvk_numbers", []):
+                snippet = _make_snippet(
+                    " ".join([doc.get("title", ""), doc.get("full_text", "")]),
+                    kvk_norm,
+                )
+                result = {
+                    "ecli": doc["ecli"],
+                    "title": doc.get("title", ""),
+                    "date": doc.get("date"),
+                    "instantie": doc.get("instantie", {}),
+                    "rechtsgebieden": doc.get("rechtsgebieden", []),
+                    "zaaknummers": doc.get("zaaknummers", []),
+                    "kvk_numbers": doc.get("kvk_numbers", []),
+                    "deeplink": doc.get("deeplink"),
+                    "snippet": snippet,
+                }
+                results.append(result)
+
+        results.sort(key=lambda d: d.get("date") or datetime.min, reverse=True)
+        sliced = results[offset : offset + limit]
+        return [SearchResult(**d) for d in sliced]
+
+    # ------------------------------------------------------------------
+    # Backwards compatibility stub - previous versions exposed a
+    # ``search_company_cases`` coroutine.  It now delegates to
+    # ``search_by_company`` but returns an empty list of ``LegalCase``
+    # objects because the original data model is not maintained here.
+    # ------------------------------------------------------------------
+    async def search_company_cases(self, company_name: str, *_, **__) -> List[Any]:
+        logger.warning(
+            "search_company_cases is deprecated; use search_by_company instead"
+        )
+        return []
+

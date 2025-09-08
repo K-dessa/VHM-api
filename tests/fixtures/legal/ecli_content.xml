@@ -1,0 +1,15 @@
+<root xmlns:dcterms="http://purl.org/dc/terms/" xmlns:psi="http://psi.rechtspraak.nl/">
+  <dcterms:identifier>ECLI:NL:TEST:2024:1</dcterms:identifier>
+  <dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">Testbedrijf B.V. tegen Gemeente</dc:title>
+  <dcterms:creator resourceIdentifier="inst1">Rechtbank Teststad</dcterms:creator>
+  <dcterms:issued>2024-01-15</dcterms:issued>
+  <dcterms:subject resourceIdentifier="rg1">Civiel recht</dcterms:subject>
+  <psi:procedure>Civiele procedure</psi:procedure>
+  <psi:zaaknummer>1234/2024</psi:zaaknummer>
+  <inhoudsindicatie>
+    <p>Testbedrijf B.V. krijgt boete van de Kamer van Koophandel (KvK 12345678).</p>
+  </inhoudsindicatie>
+  <uitspraak>
+    <p>Dit is de volledige tekst van de uitspraak over Testbedrijf B.V.</p>
+  </uitspraak>
+</root>
