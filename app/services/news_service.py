@@ -181,45 +181,53 @@ class RSSNewsSearch:
         return []
 
     async def _fetch_fallback_feeds(self, company_name: str, max_items: int) -> List[Dict[str, Any]]:
-        """Fetch articles from company fallback RSS feeds."""
+        """Fetch articles from company fallback RSS feeds concurrently."""
         fallback_urls = [
             "https://nieuws.ing.com/rss",
             "https://newsroom.ing.com/rss",
         ]
-        articles: List[Dict[str, Any]] = []
-        for url in fallback_urls:
+
+        async def fetch(url: str) -> List[Dict[str, Any]]:
             try:
                 async with httpx.AsyncClient(
                     timeout=self.timeout, headers={"User-Agent": self.user_agent}
                 ) as client:
                     resp = await client.get(url)
                 if resp.status_code != 200:
-                    continue
+                    return []
                 root = ET.fromstring(resp.text)
+                articles: List[Dict[str, Any]] = []
                 for item in root.findall(".//item")[:max_items]:
                     title_elem = item.find("title")
                     link_elem = item.find("link")
                     pub_date_elem = item.find("pubDate")
                     if title_elem is None or link_elem is None:
                         continue
-                    article = {
-                        "title": title_elem.text or "",
-                        "url": link_elem.text or "",
-                        "source": self._extract_source_from_url(link_elem.text or ""),
-                        "date": self._parse_rss_date(
-                            pub_date_elem.text if pub_date_elem is not None else ""
-                        ),
-                        "content": item.findtext("description", default=""),
-                    }
-                    articles.append(article)
+                    articles.append(
+                        {
+                            "title": title_elem.text or "",
+                            "url": link_elem.text or "",
+                            "source": self._extract_source_from_url(link_elem.text or ""),
+                            "date": self._parse_rss_date(
+                                pub_date_elem.text if pub_date_elem is not None else ""
+                            ),
+                            "content": item.findtext("description", default=""),
+                        }
+                    )
                 if articles:
                     logger.info(
-                        f"Fetched {len(articles)} articles from fallback feed", feed=url
+                        "Fetched %d articles from fallback feed", len(articles), feed=url
                     )
-                    return articles
+                return articles
             except Exception as e:
                 logger.warning("Fallback RSS fetch failed", feed=url, error=str(e))
-        return articles
+                return []
+
+        results = await asyncio.gather(*(fetch(url) for url in fallback_urls))
+        for articles in results:
+            if articles:
+                return articles
+        return []
 
     def _extract_source_from_url(self, url: str) -> str:
         """Extract source domain from URL."""
@@ -311,26 +319,16 @@ class RSSNewsSearch:
             # Import Crawl4AI here to avoid dependency issues if not installed
             from crawl4ai import AsyncWebCrawler
 
-            enhanced_articles = []
-            crawl_count = 0
             max_crawls = min(5, len(articles))  # Limit crawling for performance
 
             async with AsyncWebCrawler(
                 headless=True, verbose=False, user_agent=self.user_agent
             ) as crawler:
-                for article in articles:
-                    if crawl_count >= max_crawls:
-                        # Add remaining articles without crawling
-                        enhanced_articles.append(article)
-                        continue
-
+                async def process(article: Dict[str, Any]) -> Dict[str, Any]:
                     url = article.get("url", "")
                     if not url:
-                        enhanced_articles.append(article)
-                        continue
-
+                        return article
                     try:
-                        # Attempt to crawl the article
                         result = await crawler.arun(
                             url=url,
                             word_count_threshold=50,
@@ -339,23 +337,23 @@ class RSSNewsSearch:
                             magic=True,
                             markdown=True,
                         )
-
                         if result.success and result.markdown:
-                            # Update article with crawled content
-                            article["content"] = result.markdown[:3000]  # Limit length
-                            logger.debug(f"Successfully crawled content from: {url}")
+                            article["content"] = result.markdown[:3000]
+                            logger.debug("Successfully crawled content from: %s", url)
                         else:
-                            logger.debug(f"Failed to crawl content from: {url}")
-
-                        enhanced_articles.append(article)
-                        crawl_count += 1
-
+                            logger.debug("Failed to crawl content from: %s", url)
                     except Exception as e:
-                        logger.warning(f"Crawling failed for {url}: {e}")
-                        enhanced_articles.append(article)
+                        logger.warning("Crawling failed for %s: %s", url, e)
+                    return article
+
+                tasks = [process(a) for a in articles[:max_crawls]]
+                crawled = await asyncio.gather(*tasks)
+                enhanced_articles = crawled + articles[max_crawls:]
 
             logger.info(
-                f"Content crawling: enhanced {crawl_count} out of {len(articles)} articles"
+                "Content crawling: enhanced %d out of %d articles",
+                len(tasks),
+                len(articles),
             )
             return enhanced_articles
 
@@ -508,12 +506,17 @@ class NewsService:
                 company_name, search_params, contact_person
             )
 
-            # Analyze sentiment and relevance for each article
-            analyzed_articles = []
-            for article in search_results:
-                analyzed_article = await self._analyze_article(article, company_name)
-                if analyzed_article:
-                    analyzed_articles.append(analyzed_article)
+            # Analyze sentiment and relevance for each article concurrently
+            analysis_tasks = [
+                self._analyze_article(article, company_name) for article in search_results
+            ]
+            results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
+            analyzed_articles: List[NewsArticle] = []
+            for res in results:
+                if isinstance(res, Exception):
+                    logger.warning("Article analysis failed", error=str(res))
+                elif res:
+                    analyzed_articles.append(res)
 
             # Filter by relevance threshold (more inclusive for Dutch sources)
             relevant_articles = [
@@ -672,12 +675,17 @@ class NewsService:
                 company_name, search_params, contact_person
             )
 
-            # Analyze sentiment and relevance for each article
-            analyzed_articles = []
-            for article in search_results:
-                analyzed_article = await self._analyze_article(article, company_name)
-                if analyzed_article:
-                    analyzed_articles.append(analyzed_article)
+            # Analyze sentiment and relevance for each article concurrently
+            analysis_tasks = [
+                self._analyze_article(article, company_name) for article in search_results
+            ]
+            results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
+            analyzed_articles: List[NewsArticle] = []
+            for res in results:
+                if isinstance(res, Exception):
+                    logger.warning("Article analysis failed", error=str(res))
+                elif res:
+                    analyzed_articles.append(res)
 
             # Filter by relevance threshold (lowered from 0.6 to 0.4 for more inclusive results)
             relevant_articles = [
