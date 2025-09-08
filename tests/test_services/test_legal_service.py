@@ -32,7 +32,7 @@ async def test_fetch_api_search_atom_success(legal_service):
         mock_resp.text = "<feed></feed>"
         mock_client.return_value.__aenter__.return_value.get.return_value = mock_resp
 
-        result = await legal_service._fetch_api_search({"q": "test"})
+        result = await legal_service._fetch_api_search({"max": 10})
         assert result == "<feed></feed>"
 
 
@@ -44,7 +44,7 @@ async def test_fetch_api_search_failure(legal_service):
         mock_resp.status_code = 500
         mock_client.return_value.__aenter__.return_value.get.return_value = mock_resp
 
-        result = await legal_service._fetch_api_search({"q": "test"})
+        result = await legal_service._fetch_api_search({"max": 10})
         assert result is None
 
 

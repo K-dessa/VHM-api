@@ -140,26 +140,11 @@ class LegalService:
 
         try:
             # MANDATORY: Always attempt search regardless of robots.txt
-            cases = []
+            # The Rechtspraak Open Data API doesn't support free text queries.
+            # We therefore fetch a recent set of ECLI entries and filter them
+            # locally for relevant party names.
 
-            # Search with company name
-            company_cases = await self._perform_search(company_name)
-            cases.extend(company_cases)
-
-            # If trade name is different, also search with trade name
-            if trade_name and trade_name.lower() != company_name.lower():
-                trade_cases = await self._perform_search(trade_name)
-                cases.extend(trade_cases)
-
-            # If contact person is provided, search for them too
-            if contact_person:
-                contact_cases = await self._perform_search(f'"{contact_person}"')
-                cases.extend(contact_cases)
-
-                # Combined search: company + contact person
-                combined_search = f'{company_name} "{contact_person}"'
-                combined_cases = await self._perform_search(combined_search)
-                cases.extend(combined_cases)
+            cases = await self._perform_search()
 
             # Remove duplicates and filter by relevance
             unique_cases = self._deduplicate_cases(cases)
@@ -190,22 +175,34 @@ class LegalService:
             # Return empty list but with a warning that search was attempted
             return []
 
-    async def _perform_search(self, search_term: str) -> List[Dict[str, Any]]:
-        """Perform actual search using Rechtspraak Open Data API"""
+    async def _perform_search(self, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Retrieve recent ECLIs and associated case info.
+
+        Because the Rechtspraak API does not support arbitrary text queries,
+        this method fetches a list of recent cases using date filters and later
+        filtering is applied in :meth:`_filter_by_relevance`.
+        """
         search_results = []
         max_results = 50  # Limit total results
 
         try:
             await self._enforce_rate_limit()
 
-            search_params = {
-                "q": search_term,
-                "max": max_results,
-                "return": "DOC",  # Return document metadata
-                "sort": "DESC",  # Sort by most recent (DESC = descending on modified date)
-            }
+            end_date = datetime.utcnow().date()
+            start_date = end_date - timedelta(days=365)
+            params: List[tuple] = [
+                ("date", start_date.strftime("%Y-%m-%d")),
+                ("date", end_date.strftime("%Y-%m-%d")),
+                ("return", "DOC"),  # Only cases with documents
+                ("max", str(max_results)),
+                ("sort", "DESC"),
+            ]
 
-            api_response = await self._fetch_api_search(search_params)
+            if filters:
+                for key, value in filters.items():
+                    params.append((key, value))
+
+            api_response = await self._fetch_api_search(params)
             if not api_response:
                 return []
 
@@ -213,9 +210,7 @@ class LegalService:
             search_results = await self._parse_api_results(api_response)
 
         except Exception as e:
-            logger.error(
-                "Error during API search", search_term=search_term, error=str(e)
-            )
+            logger.error("Error during API search", error=str(e))
 
         return search_results
 
@@ -225,9 +220,14 @@ class LegalService:
         wait=wait_exponential(multiplier=1, min=2, max=10),
     )
     async def _fetch_api_search(
-        self, params: Dict[str, Any]
+        self, params: Any
     ) -> Optional[Dict[str, Any]]:
-        """Fetch search results from Rechtspraak Open Data API"""
+        """Fetch search results from Rechtspraak Open Data API.
+
+        ``params`` may be a mapping or a list of key/value tuples so that
+        duplicate query parameters (e.g. multiple ``date`` filters) can be
+        supplied.
+        """
         headers = {
             "User-Agent": self.user_agent,
             "Accept": "application/atom+xml, application/json",
