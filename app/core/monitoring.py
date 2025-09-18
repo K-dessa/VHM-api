@@ -68,9 +68,6 @@ class MetricsCollector:
             "kvk_api_calls_total": 0,
             "kvk_api_calls_success": 0,
             "kvk_api_calls_failed": 0,
-            "legal_searches_total": 0,
-            "legal_searches_success": 0,
-            "legal_searches_failed": 0,
             "news_analyses_total": 0,
             "news_analyses_success": 0,
             "news_analyses_failed": 0,
@@ -142,12 +139,6 @@ class MetricsCollector:
             else:
                 self._business_metrics["kvk_api_calls_failed"] += 1
         
-        elif event == "legal_search":
-            self._business_metrics["legal_searches_total"] += 1
-            if success:
-                self._business_metrics["legal_searches_success"] += 1
-            else:
-                self._business_metrics["legal_searches_failed"] += 1
         
         elif event == "news_analysis":
             self._business_metrics["news_analyses_total"] += 1

@@ -43,7 +43,7 @@ Gebruik de bestaande config en exception classes uit stap 1."
 
 ### 2.3 CompanyInfo model uitbreiden
 **Prompt**: "Breid het CompanyInfo model uit in app/models/response_models.py met alle velden uit api-specifications.md:
-- kvk_number, name, trade_name, legal_form
+- kvk_number, name, trade_name
 - Address nested model (street, postal_code, city, country)
 - status, establishment_date
 - SBI codes list met code en description
@@ -163,4 +163,4 @@ Voor testing gebruik bekende KvK nummers zoals:
 - Test eerst met KvK API test environment
 
 ## Volgende stap
-Na succesvolle completie van stap 2, ga naar stap3.md voor Legal Service implementatie.
+Na succesvolle completie van stap 2, ga naar stap4.md voor News Service implementatie.

@@ -9,7 +9,6 @@ De Bedrijfsanalyse API biedt drie verschillende analyse-endpoints voor Nederland
 ### Workflow
 1. **Input validatie**: Bedrijfsnaam (verplicht), KvK nummer (optioneel)
 2. **KvK lookup**: Als KvK nummer beschikbaar → ophalen bedrijfsgegevens
-3. **Legal cases**: Zoeken naar rechtszaken via rechtspraak.nl
 4. **News analysis**: AI-gedreven nieuwsanalyse met OpenAI
 5. **Risk assessment**: Gecombineerde risicoanalyse
 6. **Response**: Volledige analyse met alle componenten
@@ -23,7 +22,6 @@ De Bedrijfsanalyse API biedt drie verschillende analyse-endpoints voor Nederland
 
 ### Workflow
 1. **Input validatie**: Bedrijfsnaam + contactpersoon (beide verplicht)
-2. **Legal check**: VERPLICHTE rechtspraak.nl check
 3. **Dutch news priority**: Focus op Nederlandse nieuwsbronnen (FD, NRC, NOS)
 4. **Structured output**: Nederlandse rapportage format
 5. **Response**: Gestructureerde analyse in het Nederlands
@@ -37,7 +35,7 @@ De Bedrijfsanalyse API biedt drie verschillende analyse-endpoints voor Nederland
 
 ### Workflow
 1. **Input validatie**: Alleen bedrijfsnaam
-2. **Parallel processing**: Gelijktijdig web + legal search
+2. **Parallel processing**: Gelijktijdig web + news search
 3. **Simple JSON output**: Basis informatie zonder diepgaande analyse
 4. **Response**: Vereenvoudigde JSON structuur
 
@@ -55,7 +53,6 @@ De Bedrijfsanalyse API biedt drie verschillende analyse-endpoints voor Nederland
 
 ### Rate Limiting
 - 100 requests/uur per API key
-- 1 request/seconde naar rechtspraak.nl
 - 500 requests/dag KvK API limiet
 
 ### Error Handling
@@ -69,7 +66,6 @@ De Bedrijfsanalyse API biedt drie verschillende analyse-endpoints voor Nederland
 
 ### Externe APIs
 1. **KvK API**: Optioneel, 500/dag limiet
-2. **Rechtspraak.nl**: Verplicht, 1/sec limiet
 3. **OpenAI GPT-4**: AI analyse, 30s timeout
 
 ### Veiligheid

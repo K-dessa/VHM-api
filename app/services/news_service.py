@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import time
@@ -447,12 +448,28 @@ class NewsService:
                 company_name, search_params, contact_person
             )
 
-            # Analyze sentiment and relevance for each article
-            analyzed_articles = []
+            # Analyze sentiment and relevance for each article in parallel
+            logger.info(f"Starting parallel Dutch analysis of {len(search_results)} articles")
+            
+            # Create tasks for parallel processing
+            analysis_tasks = []
             for article in search_results:
-                analyzed_article = await self._analyze_article(article, company_name)
-                if analyzed_article:
-                    analyzed_articles.append(analyzed_article)
+                task = asyncio.create_task(self._analyze_article(article, company_name))
+                analysis_tasks.append(task)
+            
+            # Wait for all analyses to complete
+            analysis_results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
+            
+            # Process results and filter out exceptions
+            analyzed_articles = []
+            for i, result in enumerate(analysis_results):
+                if isinstance(result, Exception):
+                    logger.warning(f"Dutch article analysis failed for article {i}: {result}")
+                    continue
+                if result:
+                    analyzed_articles.append(result)
+            
+            logger.info(f"Parallel Dutch analysis completed: {len(analyzed_articles)} articles analyzed successfully")
 
             # Filter by relevance threshold (more inclusive for Dutch sources)
             relevant_articles = [
@@ -546,14 +563,30 @@ class NewsService:
             if len(articles) > max_results:
                 articles = articles[:max_results]
 
-            # Quick analysis without deep content processing
-            analyzed_articles = []
+            # Quick analysis without deep content processing - parallel processing
+            logger.info(f"Starting parallel simple analysis of {len(articles)} articles")
+            
+            # Create tasks for parallel processing
+            analysis_tasks = []
             for article in articles:
-                analyzed_article = await self._analyze_article(article, company_name)
+                task = asyncio.create_task(self._analyze_article(article, company_name))
+                analysis_tasks.append(task)
+            
+            # Wait for all analyses to complete
+            analysis_results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
+            
+            # Process results and filter out exceptions
+            analyzed_articles = []
+            for i, result in enumerate(analysis_results):
+                if isinstance(result, Exception):
+                    logger.warning(f"Simple article analysis failed for article {i}: {result}")
+                    continue
                 if (
-                    analyzed_article and analyzed_article.relevance_score >= 0.2
+                    result and result.relevance_score >= 0.2
                 ):  # Very inclusive for simple mode
-                    analyzed_articles.append(analyzed_article)
+                    analyzed_articles.append(result)
+            
+            logger.info(f"Parallel simple analysis completed: {len(analyzed_articles)} articles analyzed successfully")
 
             # Generate lightweight analysis
             news_analysis = await self._generate_overall_analysis(
@@ -611,12 +644,28 @@ class NewsService:
                 company_name, search_params, contact_person
             )
 
-            # Analyze sentiment and relevance for each article
-            analyzed_articles = []
+            # Analyze sentiment and relevance for each article in parallel
+            logger.info(f"Starting parallel analysis of {len(search_results)} articles")
+            
+            # Create tasks for parallel processing
+            analysis_tasks = []
             for article in search_results:
-                analyzed_article = await self._analyze_article(article, company_name)
-                if analyzed_article:
-                    analyzed_articles.append(analyzed_article)
+                task = asyncio.create_task(self._analyze_article(article, company_name))
+                analysis_tasks.append(task)
+            
+            # Wait for all analyses to complete
+            analysis_results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
+            
+            # Process results and filter out exceptions
+            analyzed_articles = []
+            for i, result in enumerate(analysis_results):
+                if isinstance(result, Exception):
+                    logger.warning(f"Article analysis failed for article {i}: {result}")
+                    continue
+                if result:
+                    analyzed_articles.append(result)
+            
+            logger.info(f"Parallel analysis completed: {len(analyzed_articles)} articles analyzed successfully")
 
             # Filter by relevance threshold (lowered from 0.6 to 0.4 for more inclusive results)
             relevant_articles = [

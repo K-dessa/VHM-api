@@ -1,0 +1,35 @@
+{
+  "name": "vhm-api",
+  "version": "1.0.0",
+  "description": "Comprehensive risk assessment and due diligence API for Dutch companies. Works with **company names** (KvK numbers optional) and integrates legal sources with AI-powered analysis to provide actionable business intelligence.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/K-dessa/VHM-api.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/K-dessa/VHM-api/issues"
+  },
+  "homepage": "https://github.com/K-dessa/VHM-api#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.5",
+    "axios": "^1.11.0",
+    "playwright": "^1.55.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}

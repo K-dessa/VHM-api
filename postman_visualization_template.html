@@ -1,0 +1,730 @@
+var template = `
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+<style>
+  :root {
+    --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    --danger-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+    --warning-gradient: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+    --dark-gradient: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+    
+    --success: #10b981;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --info: #3b82f6;
+    
+    --glass-bg: rgba(255, 255, 255, 0.1);
+    --glass-border: rgba(255, 255, 255, 0.2);
+    --shadow-light: rgba(31, 38, 135, 0.15);
+    --shadow-heavy: rgba(0, 0, 0, 0.25);
+    
+    --text-primary: #1f2937;
+    --text-secondary: #6b7280;
+    --text-accent: #4f46e5;
+    --bg-primary: #f8fafc;
+    --bg-card: rgba(255, 255, 255, 0.95);
+    --border-color: rgba(148, 163, 184, 0.2);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --glass-bg: rgba(0, 0, 0, 0.2);
+      --glass-border: rgba(255, 255, 255, 0.1);
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-accent: #8b5cf6;
+      --bg-primary: #0f172a;
+      --bg-card: rgba(15, 23, 42, 0.8);
+      --border-color: rgba(71, 85, 105, 0.3);
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg-primary);
+    background-image: 
+      radial-gradient(circle at 20% 50%, rgba(120, 119, 198, 0.3) 0%, transparent 50%),
+      radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.15) 0%, transparent 50%),
+      radial-gradient(circle at 40% 80%, rgba(120, 219, 255, 0.15) 0%, transparent 50%);
+    min-height: 100vh;
+    color: var(--text-primary);
+    line-height: 1.6;
+  }
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+
+  .header {
+    text-align: center;
+    margin-bottom: 3rem;
+  }
+
+  .header h1 {
+    font-size: 2.5rem;
+    font-weight: 800;
+    background: var(--primary-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 0.5rem;
+  }
+
+  .header p {
+    font-size: 1.125rem;
+    color: var(--text-secondary);
+    font-weight: 400;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    margin-bottom: 2rem;
+  }
+
+  @media (max-width: 768px) {
+    .grid {
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+    .container {
+      padding: 1rem;
+    }
+    .header h1 {
+      font-size: 2rem;
+    }
+  }
+
+  .card {
+    background: var(--bg-card);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-color);
+    border-radius: 24px;
+    padding: 2rem;
+    box-shadow: 
+      0 20px 25px -5px var(--shadow-light),
+      0 10px 10px -5px var(--shadow-light);
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 
+      0 25px 30px -5px var(--shadow-light),
+      0 15px 15px -5px var(--shadow-light);
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: var(--primary-gradient);
+    border-radius: 24px 24px 0 0;
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .card-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 16px;
+    background: var(--primary-gradient);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+
+  .card-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .card-subtitle {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem;
+    margin-top: 2rem;
+  }
+
+  .stat-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 1.5rem 1rem;
+    text-align: center;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
+  }
+
+  .stat-card:hover {
+    transform: scale(1.05);
+  }
+
+  .stat-number {
+    font-size: 2rem;
+    font-weight: 800;
+    margin-bottom: 0.25rem;
+  }
+
+  .stat-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+
+  .stat-positive .stat-number {
+    background: var(--success-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .stat-negative .stat-number {
+    background: var(--danger-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .stat-neutral .stat-number {
+    color: var(--text-secondary);
+  }
+
+  .chart-container {
+    position: relative;
+    height: 300px;
+    margin: 1rem 0;
+  }
+
+  .chart-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .chart-overlay-title {
+    font-size: 1.5rem;
+    font-weight: 800;
+    margin-bottom: 0.25rem;
+  }
+
+  .chart-overlay-subtitle {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+
+  .progress-container {
+    margin: 2rem 0;
+  }
+
+  .progress-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+  }
+
+  .progress-bar {
+    height: 12px;
+    background: var(--glass-bg);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% { left: -100%; }
+    100% { left: 100%; }
+  }
+
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    margin-top: 2rem;
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+  }
+
+  .legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+
+  .risk-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-top: 1rem;
+  }
+
+  .risk-low {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+  }
+
+  .risk-medium {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+  }
+
+  .risk-high {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+  }
+
+  .timeline {
+    margin: 2rem 0;
+  }
+
+  .timeline-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    border-radius: 12px;
+    margin-bottom: 0.5rem;
+    transition: all 0.3s ease;
+  }
+
+  .timeline-item:hover {
+    background: var(--glass-bg);
+  }
+
+  .timeline-date {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    min-width: 80px;
+  }
+
+  .timeline-content {
+    flex: 1;
+    font-size: 0.875rem;
+  }
+
+  .pulse {
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  canvas {
+    max-height: 300px !important;
+  }
+</style>
+
+<div class="container">
+  <div class="header">
+    <h1>News Sentiment Analysis</h1>
+    <p>Comprehensive analysis of media coverage and public perception</p>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">📊</div>
+        <div>
+          <div class="card-title">Sentiment Distribution</div>
+          <div class="card-subtitle">News article sentiment breakdown</div>
+        </div>
+      </div>
+      <div class="chart-container">
+        <canvas id="sentimentDonut"></canvas>
+        <div class="chart-overlay" id="donutOverlay">
+          <div class="chart-overlay-title">--</div>
+          <div class="chart-overlay-subtitle">Overall Sentiment</div>
+        </div>
+      </div>
+      <div class="legend">
+        <div class="legend-item">
+          <div class="legend-dot" style="background: var(--success);"></div>
+          <span>Positive News</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background: var(--danger);"></div>
+          <span>Negative News</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🎯</div>
+        <div>
+          <div class="card-title">Sentiment Score</div>
+          <div class="card-subtitle">Overall sentiment rating (0-100)</div>
+        </div>
+      </div>
+      <div class="chart-container">
+        <canvas id="sentimentGauge"></canvas>
+      </div>
+      <div class="progress-container">
+        <div class="progress-label">
+          <span>Positivity Index</span>
+          <span id="positivityScore">0%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="positivityProgress" style="width: 0%; background: var(--success-gradient);"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">📈</div>
+        <div>
+          <div class="card-title">Key Metrics</div>
+          <div class="card-subtitle">Comprehensive sentiment statistics</div>
+        </div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card stat-positive">
+          <div class="stat-number" id="positiveCount">0</div>
+          <div class="stat-label">Positive Articles</div>
+        </div>
+        <div class="stat-card stat-negative">
+          <div class="stat-number" id="negativeCount">0</div>
+          <div class="stat-label">Negative Articles</div>
+        </div>
+        <div class="stat-card stat-neutral">
+          <div class="stat-number" id="totalCount">0</div>
+          <div class="stat-label">Total Articles</div>
+        </div>
+        <div class="stat-card stat-neutral">
+          <div class="stat-number" id="legalCasesCount">0</div>
+          <div class="stat-label">Legal Cases</div>
+        </div>
+        <div class="stat-card stat-neutral">
+          <div class="stat-number" id="riskScore">0</div>
+          <div class="stat-label">Risk Score</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">📰</div>
+        <div>
+          <div class="card-title">Recent Activity</div>
+          <div class="card-subtitle">Latest news sentiment trends</div>
+        </div>
+      </div>
+      <div class="timeline" id="recentActivity">
+        <div class="timeline-item pulse">
+          <div class="timeline-date">Loading...</div>
+          <div class="timeline-content">Analyzing sentiment data...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(async function() {
+  // Wait for Chart.js to load
+  const waitForChart = () => new Promise((resolve) => {
+    if (window.Chart) return resolve();
+    const checkInterval = setInterval(() => {
+      if (window.Chart) {
+        clearInterval(checkInterval);
+        resolve();
+      }
+    }, 100);
+    setTimeout(() => {
+      clearInterval(checkInterval);
+      resolve();
+    }, 5000);
+  });
+
+  await waitForChart();
+
+  // Data extraction
+  const positiveCount = {{positiveNewsCount}} || 0;
+  const negativeCount = {{negativeNewsCount}} || 0;
+  const totalArticles = positiveCount + negativeCount;
+  const overallSentiment = {{overallSentiment}} || 0;
+  const riskScore = {{riskScore}} || 0;
+  const riskLevel = '{{riskLevel}}' || 'unknown';
+  const legalCasesCount = {{legalCasesCount}} || 0;
+  const legalRiskLevel = '{{legalRiskLevel}}' || 'unknown';
+
+  // Calculate percentages
+  const positivePercentage = totalArticles > 0 ? Math.round((positiveCount / totalArticles) * 100) : 0;
+  const negativePercentage = totalArticles > 0 ? Math.round((negativeCount / totalArticles) * 100) : 0;
+  const sentimentScore = Math.max(0, Math.min(100, Math.round((overallSentiment + 1) * 50)));
+
+  // Update DOM elements
+  document.getElementById('positiveCount').textContent = positiveCount;
+  document.getElementById('negativeCount').textContent = negativeCount;
+  document.getElementById('totalCount').textContent = totalArticles;
+  document.getElementById('legalCasesCount').textContent = legalCasesCount;
+  document.getElementById('riskScore').textContent = Math.round(riskScore);
+  document.getElementById('positivityScore').textContent = positivePercentage + '%';
+
+  // Update progress bar
+  setTimeout(() => {
+    document.getElementById('positivityProgress').style.width = positivePercentage + '%';
+  }, 500);
+
+
+  // Update donut overlay
+  const donutOverlay = document.getElementById('donutOverlay').querySelector('.chart-overlay-title');
+  if (totalArticles > 0) {
+    if (positiveCount > negativeCount) {
+      donutOverlay.textContent = positivePercentage + '% Positive';
+      donutOverlay.style.background = 'var(--success-gradient)';
+      donutOverlay.style.webkitBackgroundClip = 'text';
+      donutOverlay.style.webkitTextFillColor = 'transparent';
+    } else {
+      donutOverlay.textContent = negativePercentage + '% Negative';
+      donutOverlay.style.background = 'var(--danger-gradient)';
+      donutOverlay.style.webkitBackgroundClip = 'text';
+      donutOverlay.style.webkitTextFillColor = 'transparent';
+    }
+  } else {
+    donutOverlay.textContent = 'No Data';
+  }
+
+  // Update recent activity
+  const recentActivity = document.getElementById('recentActivity');
+  const activityData = [
+    { date: 'Today', content: \`Analyzed \${totalArticles} articles with \${positivePercentage}% positive sentiment\` },
+    { date: '2 hrs ago', content: \`Legal analysis completed: \${legalCasesCount} cases found with \${legalRiskLevel} risk level\` },
+    { date: '1 day ago', content: \`Risk assessment completed: \${riskLevel} risk level detected\` },
+    { date: '2 days ago', content: \`Sentiment monitoring active across \${Math.max(1, Math.ceil(totalArticles / 3))} sources\` }
+  ];
+
+  recentActivity.innerHTML = activityData.map(item => \`
+    <div class="timeline-item">
+      <div class="timeline-date">\${item.date}</div>
+      <div class="timeline-content">\${item.content}</div>
+    </div>
+  \`).join('');
+
+  // Chart configurations
+  const chartColors = {
+    positive: '#10b981',
+    negative: '#ef4444',
+    neutral: '#6b7280'
+  };
+
+  const gradients = {
+    positive: null,
+    negative: null
+  };
+
+  // Create gradients
+  const createGradients = (ctx) => {
+    gradients.positive = ctx.createLinearGradient(0, 0, 0, 300);
+    gradients.positive.addColorStop(0, '#34d399');
+    gradients.positive.addColorStop(1, '#059669');
+
+    gradients.negative = ctx.createLinearGradient(0, 0, 0, 300);
+    gradients.negative.addColorStop(0, '#f87171');
+    gradients.negative.addColorStop(1, '#dc2626');
+  };
+
+  // Donut Chart
+  const donutCtx = document.getElementById('sentimentDonut').getContext('2d');
+  createGradients(donutCtx);
+
+  new Chart(donutCtx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Positive', 'Negative'],
+      datasets: [{
+        data: totalArticles > 0 ? [positiveCount, negativeCount] : [1, 1],
+        backgroundColor: [gradients.positive, gradients.negative],
+        borderWidth: 0,
+        hoverOffset: 15
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '70%',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const value = context.raw;
+              const percentage = totalArticles > 0 ? Math.round((value / totalArticles) * 100) : 0;
+              return \`\${context.label}: \${value} articles (\${percentage}%)\`;
+            }
+          }
+        }
+      },
+      animation: {
+        animateRotate: true,
+        duration: 2000,
+        easing: 'easeOutQuart'
+      }
+    }
+  });
+
+  // Gauge Chart
+  const gaugeCtx = document.getElementById('sentimentGauge').getContext('2d');
+  new Chart(gaugeCtx, {
+    type: 'doughnut',
+    data: {
+      datasets: [{
+        data: [sentimentScore, 100 - sentimentScore],
+        backgroundColor: [
+          sentimentScore > 50 ? chartColors.positive : chartColors.negative,
+          'rgba(107, 114, 128, 0.1)'
+        ],
+        borderWidth: 0,
+        circumference: 180,
+        rotation: 270
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '75%',
+      plugins: {
+        legend: { display: false },
+        tooltip: { enabled: false }
+      },
+      animation: {
+        duration: 2500,
+        easing: 'easeOutBounce'
+      }
+    },
+    plugins: [{
+      afterDraw: function(chart) {
+        const ctx = chart.ctx;
+        const centerX = chart.chartArea.left + (chart.chartArea.right - chart.chartArea.left) / 2;
+        const centerY = chart.chartArea.top + (chart.chartArea.bottom - chart.chartArea.top) / 2 + 20;
+        
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Score
+        ctx.font = 'bold 36px Inter';
+        ctx.fillStyle = sentimentScore > 50 ? chartColors.positive : chartColors.negative;
+        ctx.fillText(sentimentScore, centerX, centerY - 10);
+        
+        // Label
+        ctx.font = '14px Inter';
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary');
+        ctx.fillText('Sentiment Score', centerX, centerY + 20);
+        
+        ctx.restore();
+      }
+    }]
+  });
+
+})();
+</script>
+`;
+
+function constructVisualizerPayload() {
+  let response;
+  try {
+    response = pm.response.json();
+  } catch (e) {
+    response = {};
+  }
+
+  const newsAnalysis = response.news_analysis || {};
+  const positiveNews = newsAnalysis.positive_news || {};
+  const negativeNews = newsAnalysis.negative_news || {};
+  const riskAssessment = response.risk_assessment || {};
+  const legalFindings = response.legal_findings || {};
+  
+  // Combine all articles from both positive and negative news
+  const allArticles = [
+    ...(positiveNews.articles || []),
+    ...(negativeNews.articles || [])
+  ];
+
+  return {
+    positiveNewsCount: Number(positiveNews.count) || 0,
+    negativeNewsCount: Number(negativeNews.count) || 0,
+    overallSentiment: Number(newsAnalysis.overall_sentiment) || 0,
+    riskScore: Number(riskAssessment.risk_score) || 0,
+    riskLevel: String(riskAssessment.overall_risk_level || 'unknown').toLowerCase(),
+    legalCasesCount: Number(legalFindings.total_cases) || 0,
+    legalRiskLevel: String(legalFindings.risk_level || 'unknown').toLowerCase(),
+    allArticles: JSON.stringify(allArticles)
+  };
+}
+
+pm.visualizer.set(template, constructVisualizerPayload());

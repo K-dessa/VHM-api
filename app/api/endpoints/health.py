@@ -33,7 +33,7 @@ async def root():
             "status": "/status", 
             "analyze_company": "/analyze-company",
             "analyze_company_simple": "/analyze-company-simple",
-            "nederlands_bedrijf_analyse": "/nederlands-bedrijf-analyse"
+            "nederlands_bedrijf_analyse": "/nederlands-bedrijf-analyse",
         }
     }
 
@@ -64,19 +64,6 @@ async def check_openai_api() -> str:
         return "unhealthy"
 
 
-async def check_rechtspraak_nl() -> str:
-    """Check rechtspraak.nl connectivity."""
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            # Basic HTTP check to rechtspraak.nl
-            response = await client.get("https://www.rechtspraak.nl")
-            if response.status_code == 200:
-                return "healthy"
-            else:
-                return "degraded"
-    except Exception as e:
-        logger.warning("Rechtspraak.nl health check failed", error=str(e))
-        return "unhealthy"
 
 
 @router.get(
@@ -88,7 +75,6 @@ async def check_rechtspraak_nl() -> str:
     
     This endpoint performs health checks on:
     - **OpenAI API**: AI service availability for news analysis
-    - **Rechtspraak.nl**: Dutch legal database accessibility
     
     **Health Status Levels:**
     - `healthy`: All dependencies are working normally
@@ -112,8 +98,7 @@ async def check_rechtspraak_nl() -> str:
                         "timestamp": "2024-01-15T10:30:00Z",
                         "version": "1.0.0",
                         "dependencies": {
-                            "openai_api": "healthy", 
-                            "rechtspraak_nl": "healthy"
+                            "openai_api": "healthy"
                         },
                         "uptime_seconds": 3600
                     }
@@ -128,8 +113,7 @@ async def check_rechtspraak_nl() -> str:
                         "status": "unhealthy",
                         "timestamp": "2024-01-15T10:30:00Z",
                         "dependencies": {
-                            "openai_api": "degraded",
-                            "rechtspraak_nl": "healthy"
+                            "openai_api": "degraded"
                         }
                     }
                 }
@@ -142,27 +126,20 @@ async def health_check():
     """
     Comprehensive health check endpoint that verifies connectivity to all external dependencies.
     
-    Performs concurrent health checks on OpenAI API and Rechtspraak.nl
+    Performs health checks on OpenAI API
     to provide detailed service status information.
     """
     start_time = time.time()
 
-    # Run all health checks concurrently
-    openai_status, rechtspraak_status = await asyncio.gather(
-        check_openai_api(),
-        check_rechtspraak_nl(),
-        return_exceptions=True,
-    )
+    # Run health check
+    openai_status = await check_openai_api()
 
     # Convert exceptions to unhealthy status
     if isinstance(openai_status, Exception):
         openai_status = "unhealthy"
-    if isinstance(rechtspraak_status, Exception):
-        rechtspraak_status = "unhealthy"
 
     dependencies = {
         "openai_api": openai_status,
-        "rechtspraak_nl": rechtspraak_status,
     }
 
     # Determine overall status

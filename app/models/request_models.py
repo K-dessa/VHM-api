@@ -52,9 +52,6 @@ class CompanyAnalysisRequest(BaseModel):
     news_date_range: DateRange = Field(
         default=DateRange.LAST_YEAR, description="Date range for news analysis"
     )
-    legal_date_range: DateRange = Field(
-        default=DateRange.LAST_3_YEARS, description="Date range for legal case analysis"
-    )
     include_subsidiaries: bool = Field(
         default=False, description="Whether to include analysis of subsidiaries"
     )
@@ -119,7 +116,6 @@ class CompanyAnalysisRequest(BaseModel):
                 "contactpersoon": "Peter Wennink",
                 "search_depth": "standard",
                 "news_date_range": "last_year",
-                "legal_date_range": "last_3_years",
                 "include_subsidiaries": False,
             }
         }

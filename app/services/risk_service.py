@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from app.models.response_models import CompanyInfo, LegalCase, NewsAnalysis
+from app.models.response_models import CompanyInfo, NewsAnalysis
 
 
 class RiskLevel(str, Enum):
@@ -22,7 +22,6 @@ class RiskLevel(str, Enum):
 class RiskCategory(str, Enum):
     """Risk category enumeration."""
 
-    LEGAL = "legal"
     REPUTATION = "reputation"
     FINANCIAL = "financial"
     OPERATIONAL = "operational"
@@ -58,10 +57,9 @@ class RiskService:
 
     # Weight factors for different risk categories
     WEIGHTS = {
-        RiskCategory.LEGAL: 0.40,
-        RiskCategory.REPUTATION: 0.30,
-        RiskCategory.FINANCIAL: 0.20,
-        RiskCategory.OPERATIONAL: 0.10,
+        RiskCategory.REPUTATION: 0.50,
+        RiskCategory.FINANCIAL: 0.30,
+        RiskCategory.OPERATIONAL: 0.20,
     }
 
     def __init__(self):
@@ -70,7 +68,7 @@ class RiskService:
     def calculate_overall_risk(
         self,
         company_info: Optional[CompanyInfo],
-        legal_findings: Optional[List[LegalCase]],
+        legal_findings: Optional[None],
         news_analysis: Optional[NewsAnalysis],
     ) -> RiskAssessment:
         """Calculate comprehensive risk assessment."""
@@ -78,8 +76,6 @@ class RiskService:
         risk_scores = []
 
         # Calculate individual risk categories
-        legal_risk = self.assess_legal_risk(legal_findings)
-        risk_scores.append(legal_risk)
 
         reputation_risk = self.assess_reputation_risk(news_analysis)
         risk_scores.append(reputation_risk)
@@ -90,7 +86,6 @@ class RiskService:
         operational_risk = self.assess_operational_risk(
             {
                 "company_info": company_info,
-                "legal_findings": legal_findings,
                 "news_analysis": news_analysis,
             }
         )
@@ -128,71 +123,6 @@ class RiskService:
             assessment_timestamp=self.current_date,
         )
 
-    def assess_legal_risk(self, legal_cases: Optional[List[LegalCase]]) -> RiskScore:
-        """Assess legal risk based on court cases."""
-        if not legal_cases:
-            return RiskScore(
-                category=RiskCategory.LEGAL,
-                level=RiskLevel.VERY_LOW,
-                score=0.05,
-                confidence=0.9,
-                factors=["No legal cases found"],
-                recommendations=["Continue monitoring legal developments"],
-            )
-
-        factors = []
-        score = 0.0
-
-        # Analyze case severity and recency
-        recent_cases = 0
-        serious_cases = 0
-        total_penalty_amount = 0.0
-
-        for case in legal_cases:
-            case_date = self._parse_case_date(case.date)
-            if case_date:
-                months_ago = (self.current_date - case_date).days / 30
-                recency_weight = self._get_recency_weight(months_ago)
-
-                # Case severity scoring
-                case_severity = self._assess_case_severity(case)
-                score += case_severity * recency_weight
-
-                if months_ago <= 12:
-                    recent_cases += 1
-
-                if case_severity > 0.6:
-                    serious_cases += 1
-                    factors.append(f"Serious case: {case.case_type} ({case.date})")
-
-                # Extract financial penalties
-                if "boete" in case.summary.lower() or "€" in case.summary:
-                    penalty = self._extract_penalty_amount(case.summary)
-                    total_penalty_amount += penalty
-
-        # Additional factors
-        if recent_cases > 0:
-            factors.append(f"{recent_cases} cases in last 12 months")
-        if serious_cases > 2:
-            factors.append(f"{serious_cases} serious cases found")
-        if total_penalty_amount > 50000:
-            factors.append(f"High financial penalties: €{total_penalty_amount:,.0f}")
-
-        # Normalize score
-        score = min(score / max(len(legal_cases), 1), 1.0)
-
-        recommendations = self._generate_legal_recommendations(
-            serious_cases, recent_cases, total_penalty_amount
-        )
-
-        return RiskScore(
-            category=RiskCategory.LEGAL,
-            level=self._score_to_level(score),
-            score=score,
-            confidence=0.8,
-            factors=factors[:5],
-            recommendations=recommendations,
-        )
 
     def assess_reputation_risk(
         self, news_analysis: Optional[NewsAnalysis]
@@ -374,8 +304,6 @@ class RiskService:
         missing_data = 0
         if not company_info:
             missing_data += 1
-        if not legal_findings:
-            missing_data += 0.5  # Less critical
         if not news_analysis:
             missing_data += 0.5
 
@@ -385,24 +313,6 @@ class RiskService:
                 f"Incomplete data available ({missing_data:.1f} sources missing)"
             )
 
-        # Operational indicators from legal cases
-        if legal_findings:
-            operational_issues = 0
-            for case in legal_findings:
-                if any(
-                    keyword in case.case_type.lower()
-                    for keyword in [
-                        "arbeidsrecht",
-                        "employment",
-                        "safety",
-                        "compliance",
-                    ]
-                ):
-                    operational_issues += 1
-
-            if operational_issues > 0:
-                score += min(operational_issues * 0.1, 0.4)
-                factors.append(f"{operational_issues} operational-related legal cases")
 
         # Industry-specific operational risks
         if company_info and hasattr(company_info, "industry"):
@@ -483,70 +393,6 @@ class RiskService:
             pass
         return None
 
-    def _assess_case_severity(self, case: LegalCase) -> float:
-        """Assess the severity of a legal case (0.0 to 1.0)."""
-        severity = 0.0
-
-        # Case type severity
-        high_severity_types = ["criminal", "fraud", "bankruptcy", "administrative"]
-        medium_severity_types = ["civil", "contract", "employment"]
-
-        case_type_lower = case.case_type.lower()
-        if any(hs in case_type_lower for hs in high_severity_types):
-            severity += 0.7
-        elif any(ms in case_type_lower for ms in medium_severity_types):
-            severity += 0.4
-        else:
-            severity += 0.2
-
-        # Outcome severity
-        if hasattr(case, "outcome"):
-            outcome_lower = case.outcome.lower()
-            if any(word in outcome_lower for word in ["guilty", "liable", "penalty"]):
-                severity += 0.3
-
-        return min(severity, 1.0)
-
-    def _extract_penalty_amount(self, text: str) -> float:
-        """Extract financial penalty amount from text."""
-        import re
-
-        # Look for Euro amounts
-        matches = re.findall(r"€\s*(\d+(?:\.\d{3})*(?:,\d{2})?)", text)
-        if matches:
-            try:
-                # Convert Dutch number format to float
-                amount_str = matches[0].replace(".", "").replace(",", ".")
-                return float(amount_str)
-            except ValueError:
-                pass
-
-        return 0.0
-
-    def _generate_legal_recommendations(
-        self, serious_cases: int, recent_cases: int, penalty_amount: float
-    ) -> List[str]:
-        """Generate legal risk recommendations."""
-        recommendations = []
-
-        if serious_cases > 0:
-            recommendations.append("Conduct thorough legal compliance review")
-            recommendations.append(
-                "Consider engaging legal counsel for risk assessment"
-            )
-
-        if recent_cases > 2:
-            recommendations.append("Implement enhanced legal monitoring procedures")
-            recommendations.append("Review internal compliance processes")
-
-        if penalty_amount > 100000:
-            recommendations.append("Assess financial impact of legal penalties")
-            recommendations.append("Review insurance coverage for legal risks")
-
-        if not recommendations:
-            recommendations.append("Maintain regular legal compliance monitoring")
-
-        return recommendations[:5]
 
     def _generate_reputation_recommendations(
         self, sentiment_summary: Optional[Dict], factors: List[str]
@@ -629,9 +475,6 @@ class RiskService:
             if score.level in [RiskLevel.HIGH, RiskLevel.VERY_HIGH]
         ]
 
-        if RiskCategory.LEGAL in high_risk_categories:
-            suggestions.append("Weekly legal database monitoring")
-            suggestions.append("Quarterly compliance assessment")
 
         if RiskCategory.REPUTATION in high_risk_categories:
             suggestions.append("Daily media mention monitoring")

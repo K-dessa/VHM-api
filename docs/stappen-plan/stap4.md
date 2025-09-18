@@ -6,7 +6,7 @@ Implementeer AI-gedreven nieuwsanalyse met OpenAI function calling voor het zoek
 ## Voorbereidingen
 - Stap 1, 2 en 3 volledig afgerond
 - OpenAI API key beschikbaar
-- KvK en Legal services werkend
+- KvK service werkend
 
 ## Prompts voor implementatie
 
@@ -120,7 +120,7 @@ Implementeer AI-gedreven nieuwsanalyse met OpenAI function calling voor het zoek
    1. Sentiment score (-1.0 to 1.0)
    2. Relevance to the company (0.0 to 1.0)
    3. Key business impact phrases
-   4. Article categories (financial, legal, operational, etc.)
+   4. Article categories (financial, operational, etc.)
    
    Be objective and focus on business implications.
    ```
@@ -162,7 +162,7 @@ Implementeer AI-gedreven nieuwsanalyse met OpenAI function calling voor het zoek
 1. Multi-stage search approach:
    - Stage 1: Broad search met company name
    - Stage 2: Specific searches voor positive/negative
-   - Stage 3: Deep search voor legal/financial terms
+   - Stage 3: Deep search voor financial terms
 
 2. Search query optimization:
    - Company name synonyms en abbreviations
@@ -221,7 +221,7 @@ Implementeer AI-gedreven nieuwsanalyse met OpenAI function calling voor het zoek
 **Prompt**: "Update app/api/endpoints/analyze.py voor news service integratie:
 
 1. Service orchestration:
-   - Parallel execution: KvK + Legal + News
+   - Parallel execution: KvK + News
    - Progressive loading (toon partial results)
    - Timeout management per service
    - Graceful degradation strategies

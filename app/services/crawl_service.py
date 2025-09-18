@@ -13,11 +13,19 @@ from crawl4ai.extraction_strategy import LLMExtractionStrategy
 from app.core.config import settings
 from app.models.response_models import CrawledContent, WebContent
 
-# Set up cache directory for Railway deployment
-cache_dir = os.environ.get("CRAWL4AI_DB_PATH") or "/app/.cache/crawl4ai"
-pathlib.Path(cache_dir).mkdir(parents=True, exist_ok=True)
-os.environ.setdefault("CRAWL4AI_DB_PATH", cache_dir)
-os.environ.setdefault("XDG_CACHE_HOME", "/app/.cache")
+# Set up cache directory for local development and deployment
+cache_dir = os.environ.get("CRAWL4AI_DB_PATH") or "/tmp/crawl4ai"
+try:
+    pathlib.Path(cache_dir).mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("CRAWL4AI_DB_PATH", cache_dir)
+    os.environ.setdefault("XDG_CACHE_HOME", "/tmp")
+except (OSError, PermissionError) as e:
+    # Fallback to user's home directory if /tmp is not writable
+    import tempfile
+    cache_dir = os.path.join(tempfile.gettempdir(), "crawl4ai")
+    pathlib.Path(cache_dir).mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("CRAWL4AI_DB_PATH", cache_dir)
+    os.environ.setdefault("XDG_CACHE_HOME", tempfile.gettempdir())
 
 logger = structlog.get_logger(__name__)
 

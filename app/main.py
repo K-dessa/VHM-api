@@ -45,12 +45,11 @@ app = FastAPI(
     description="""
 # Business Analysis API for Dutch Companies
 
-Comprehensive risk assessment and due diligence API for Dutch companies using web crawling, legal databases, and AI-powered analysis.
+Comprehensive risk assessment and due diligence API for Dutch companies using web crawling and AI-powered analysis.
 
 ## Features
 
 * **Web Content Analysis**: AI-ready website crawling with Crawl4AI and Markdown output
-* **Legal Risk Assessment**: Comprehensive court case analysis from Rechtspraak.nl
 * **News Sentiment Analysis**: AI-powered news analysis focusing on Dutch sources
 * **Integrated Risk Scoring**: Multi-factor risk assessment combining all data sources
 * **Dutch-focused Analysis**: Prioritizes .nl domains and Dutch news sources
@@ -71,15 +70,13 @@ All endpoints require authentication via the `X-API-Key` header.
 ## Data Sources
 
 1. **Crawl4AI**: Intelligent web crawling with boilerplate removal and content chunking
-2. **Rechtspraak.nl**: Dutch legal database (always checked when available)
-3. **Dutch News Sources**: FD, NRC, NOS, Volkskrant, BNR and other Dutch media
-4. **OpenAI GPT-4**: AI-powered content analysis and risk assessment
+2. **Dutch News Sources**: FD, NRC, NOS, Volkskrant, BNR and other Dutch media
+3. **OpenAI GPT-4**: AI-powered content analysis and risk assessment
 
 ## Workflow Improvements
 
 The API now implements an improved workflow without KvK dependencies:
 - **Web-first approach**: Crawls company websites for authentic business information
-- **Mandatory legal checks**: Always performs Rechtspraak.nl searches when available
 - **Dutch content priority**: Focuses on Dutch domains and news sources for local companies
 - **Simplified architecture**: Eliminates external API dependencies and costs
 
@@ -356,7 +353,7 @@ async def startup_event():
         ("GET", "/metrics"),
         ("POST", "/analyze-company"),
         ("POST", "/analyze-company-simple"),
-        ("POST", "/nederlands-bedrijf-analyse")
+        ("POST", "/nederlands-bedrijf-analyse"),
     ]
     
     registered_routes = []
@@ -400,19 +397,12 @@ async def startup_event():
     
     # Test critical service imports during startup
     try:
-        from .services.legal_service import LegalService
         from .services.news_service import NewsService
         from .services.crawl_service import CrawlService
         from .services.risk_service import RiskService
         logger.info("All service imports successful")
         
         # Test service initialization
-        try:
-            legal_service = LegalService()
-            logger.info("LegalService initialized successfully")
-        except Exception as e:
-            logger.warning("LegalService initialization warning", error=str(e))
-            
         try:
             news_service = NewsService()
             logger.info("NewsService initialized successfully")

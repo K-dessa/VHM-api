@@ -90,10 +90,6 @@ pre-commit==3.5.0
 - **Response Format**: JSON
 - **Timeout**: 10 seconds
 
-### Rechtspraak.nl Scraping
-- **Base URL**: https://www.rechtspraak.nl/Uitspraken/
-- **Rate Limiting**: 1 request/second
-- **User Agent**: Proper identification
 - **Robots.txt**: Full compliance
 - **Timeout**: 15 seconds per request
 

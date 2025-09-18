@@ -47,10 +47,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_WINDOW: int = config("RATE_LIMIT_WINDOW", default=3600, cast=int)
     
     # Timeout settings (environment-specific)
-    RECHTSPRAAK_TIMEOUT: int = config("RECHTSPRAAK_TIMEOUT", default=10, cast=int)
     OPENAI_TIMEOUT: int = config("OPENAI_TIMEOUT", default=30, cast=int)
     ANALYSIS_TIMEOUT_SIMPLE: int = config("ANALYSIS_TIMEOUT_SIMPLE", default=25, cast=int)
-    ANALYSIS_TIMEOUT_STANDARD: int = config("ANALYSIS_TIMEOUT_STANDARD", default=30, cast=int)
+    ANALYSIS_TIMEOUT_STANDARD: int = config("ANALYSIS_TIMEOUT_STANDARD", default=45, cast=int)
     ANALYSIS_TIMEOUT_DUTCH: int = config("ANALYSIS_TIMEOUT_DUTCH", default=40, cast=int)
     
     # Crawl4AI settings (new improved workflow)
@@ -96,7 +95,6 @@ class Settings(BaseSettings):
     
     # Risk assessment parameters
     RISK_ASSESSMENT_WEIGHTS: Dict[str, float] = {
-        "legal": 0.40,
         "reputation": 0.30,
         "financial": 0.20,
         "operational": 0.10

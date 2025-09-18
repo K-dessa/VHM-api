@@ -29,7 +29,6 @@ X-API-Key: your-api-key-here
   "contactpersoon": "Peter Wennink",
   "search_depth": "standard",
   "news_date_range": "last_year",
-  "legal_date_range": "last_3_years",
   "include_subsidiaries": false
 }
 ```
@@ -116,27 +115,6 @@ X-API-Key: your-api-key-here
     "employee_count": "10-49",
     "website": "https://example.com"
   },
-  "legal_findings": {
-    "total_cases": 2,
-    "risk_level": "medium",
-    "cases": [
-      {
-        "ecli": "ECLI:NL:RBAMS:2024:1234",
-        "case_number": "C/13/123456/HA ZA 23-123",
-        "date": "2024-01-15",
-        "court": "Rechtbank Amsterdam",
-        "type": "civil",
-        "parties": [
-          "Example B.V.",
-          "Other Company B.V."
-        ],
-        "summary": "Contractueel geschil betreffende softwarelicenties",
-        "outcome": "partial",
-        "url": "https://uitspraken.rechtspraak.nl/inziendocument?id=...",
-        "relevance_score": 0.9
-      }
-    ]
-  },
   "news_analysis": {
     "positive_news": {
       "count": 5,
@@ -178,16 +156,12 @@ X-API-Key: your-api-key-here
   "risk_assessment": {
     "overall_score": "medium",
     "scores": {
-      "legal_risk": "medium", 
       "reputation_risk": "low",
       "financial_risk": "low",
       "operational_risk": "low"
     },
     "factors": [
       {
-        "category": "legal",
-        "impact": "medium",
-        "description": "Actieve civiele procedures, maar geen strafrechtelijke issues"
       },
       {
         "category": "reputation", 
@@ -210,7 +184,6 @@ X-API-Key: your-api-key-here
     },
     "data_freshness": {
       "kvk_data": "2024-09-04",
-      "legal_data": "2024-09-03", 
       "news_data": "2024-09-04"
     }
   }
@@ -280,7 +253,7 @@ X-API-Key: your-api-key-here
 
 #### `POST /nederlands-bedrijf-analyse`
 
-Voert een Nederlandse bedrijfsanalyse uit volgens de nieuwe workflow specificatie met **verplichte** Rechtspraak.nl controle en Nederlandse nieuwsbronnen prioriteit.
+Voert een Nederlandse bedrijfsanalyse uit volgens de nieuwe workflow specificatie met Nederlandse nieuwsbronnen prioriteit.
 
 **Request Body**
 ```json
@@ -305,20 +278,14 @@ Voert een Nederlandse bedrijfsanalyse uit volgens de nieuwe workflow specificati
     }
   ],
   "slecht_nieuws": [
-    {
-      "titel": "Rechtszaak: Patent dispute met concurrent... (Rechtbank Den Haag)",
-      "link": "https://rechtspraak.nl/uitspraken/content?id=ECLI:NL:123",
-      "bron": "rechtspraak.nl"
-    }
   ],
-  "samenvatting": "Analyse voor ASML Holding N.V.: 3 positieve berichten gevonden, 2 negatieve items gevonden waaronder 1 juridische zaken. Rechtspraak.nl gecontroleerd.",
+  "samenvatting": "Analyse voor ASML Holding N.V.: 3 positieve berichten gevonden, 2 negatieve items gevonden.",
   "analysis_timestamp": "2024-01-15T10:30:00Z",
-  "bronnen_gecontroleerd": ["rechtspraak.nl", "fd.nl", "nrc.nl", "volkskrant.nl", "nos.nl", "bnr.nl"]
+  "bronnen_gecontroleerd": ["fd.nl", "nrc.nl", "volkskrant.nl", "nos.nl", "bnr.nl"]
 }
 ```
 
 **Belangrijke kenmerken:**
-- **Verplichte Rechtspraak.nl controle** - altijd uitgevoerd
 - **Nederlandse bronnen prioriteit** - FD, NRC, Volkskrant, NOS, BNR
 - **Contactpersoon integratie** - zoekt naar contactpersoon in alle bronnen
 - **90 dagen lookback** - laatste 90 dagen voor nieuws
@@ -341,7 +308,7 @@ Vereenvoudigde bedrijfsanalyse met web search en juridische case lookup.
 ```json
 {
   "bedrijf": "ASML Holding N.V.",
-  "samenvatting": "Analysis for ASML Holding N.V.: 5 positive articles found, 3 negative items found including 1 legal cases.",
+  "samenvatting": "Analysis for ASML Holding N.V.: 5 positive articles found, 3 negative items found.",
   "goed_nieuws": [
     {
       "titel": "ASML reports strong Q3 results",
@@ -350,11 +317,6 @@ Vereenvoudigde bedrijfsanalyse met web search en juridische case lookup.
     }
   ],
   "slecht_nieuws": [
-    {
-      "titel": "Legal case: Patent dispute...",
-      "link": "https://rechtspraak.nl/case123",
-      "bron": "rechtspraak.nl"
-    }
   ]
 }
 ```
@@ -374,7 +336,6 @@ Controleert de status van de API en externe dependencies.
   "dependencies": {
     "kvk_api": "healthy",
     "openai_api": "healthy", 
-    "rechtspraak_nl": "healthy"
   },
   "performance": {
     "avg_response_time_ms": 1250,
@@ -392,11 +353,9 @@ Controleert de status van de API en externe dependencies.
   "dependencies": {
     "kvk_api": "unhealthy",
     "openai_api": "healthy",
-    "rechtspraak_nl": "degraded"
   },
   "issues": [
     "KvK API is not responding",
-    "Rechtspraak.nl response time > 30s"
   ]
 }
 ```
