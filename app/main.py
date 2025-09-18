@@ -25,6 +25,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 
 from .api.endpoints import analyze, health, status
 from .api.endpoints.status import MetricsCollector
@@ -300,8 +301,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             message="Request validation failed",
             request_id=correlation_id,
             timestamp=datetime.now(timezone.utc),
-            details={"validation_errors": exc.errors()},
-        ).model_dump(mode='json'),
+            details={"validation_errors": jsonable_encoder(exc.errors())},
+        ).model_dump(mode="json"),
     )
 
 
