@@ -95,7 +95,6 @@ analysis_payload=$(cat <<EOF
     "company_name": "$TEST_COMPANY_NAME",
     "search_depth": "standard",
     "news_date_range": "last_year",
-    "legal_date_range": "last_3_years",
     "include_subsidiaries": false
 }
 EOF

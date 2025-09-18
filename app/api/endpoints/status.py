@@ -14,7 +14,6 @@ from fastapi.responses import PlainTextResponse
 import structlog
 
 from ...core.config import get_settings
-from ...services.legal_service import LegalService
 from ...services.news_service import NewsService
 from ...utils.rate_limiter import get_rate_limiter
 
@@ -29,7 +28,6 @@ _metrics = {
     "requests_error": 0,
     "response_times": [],
     "external_api_calls": {
-        "legal": {"total": 0, "success": 0, "error": 0},
         "news": {"total": 0, "success": 0, "error": 0}
     },
     "cache_hits": 0,
@@ -147,12 +145,6 @@ class MetricsCollector:
                             }
                         },
                         "external_services": {
-                            "legal_service": {
-                                "status": "healthy",
-                                "success_rate_percent": 98.5,
-                                "robots_allowed": True,
-                                "total_calls": 234
-                            },
                             "news_service": {
                                 "status": "healthy", 
                                 "success_rate_percent": 94.2,
@@ -397,9 +389,9 @@ http_requests_total 1250
 http_request_duration_seconds{quantile="0.5"} 1.234
 http_request_duration_seconds{quantile="0.95"} 4.789
 
-# HELP external_api_calls_total_legal Total external API calls to legal
-# TYPE external_api_calls_total_legal counter
-external_api_calls_total_legal 234"""
+# HELP external_api_calls_total_news Total external API calls to news
+# TYPE external_api_calls_total_news counter
+external_api_calls_total_news 567"""
                 }
             }
         },
@@ -521,32 +513,6 @@ async def get_metrics() -> str:
 async def _check_external_services() -> Dict[str, Dict[str, Any]]:
     """Check the health of external services."""
     services = {}
-    
-    # Legal service health check
-    try:
-        legal_service = LegalService()
-        await legal_service.initialize()
-        
-        legal_stats = _metrics["external_api_calls"]["legal"]
-        success_rate = (
-            legal_stats["success"] / legal_stats["total"] * 100 
-            if legal_stats["total"] > 0 else 100.0
-        )
-        
-        services["legal_service"] = {
-            "status": "healthy" if legal_service.robots_allowed else "restricted",
-            "success_rate_percent": round(success_rate, 2),
-            "robots_allowed": legal_service.robots_allowed,
-            "total_calls": legal_stats["total"],
-            "last_check": datetime.utcnow().isoformat()
-        }
-        
-    except Exception as e:
-        services["legal_service"] = {
-            "status": "unavailable",
-            "error": str(e),
-            "last_check": datetime.utcnow().isoformat()
-        }
     
     # News service health check
     try:

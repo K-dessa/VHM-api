@@ -2,12 +2,11 @@
 
 ## Project Beschrijving
 
-Een REST API die automatisch positieve en negatieve berichtgeving over Nederlandse bedrijven verzamelt en analyseert. Het systeem werkt op basis van **bedrijfsnamen** (met optionele KvK-nummers) en combineert juridische bronnen (Rechtspraak.nl) met AI-gedreven nieuwsanalyse via OpenAI.
+Een REST API die automatisch positieve en negatieve berichtgeving over Nederlandse bedrijven verzamelt en analyseert. Het systeem werkt op basis van **bedrijfsnamen** (met optionele KvK-nummers) en combineert AI-gedreven nieuwsanalyse via OpenAI.
 
 ## Hoofddoelstellingen
 
 1. **Name-Based Analysis**: Snelle bedrijfsanalyse op basis van bedrijfsnaam
-2. **Verplichte Juridische Controle**: Altijd uitgevoerde Rechtspraak.nl zoekopdracht
 3. **Nederlandse Focus**: Prioriteit voor Nederlandse nieuwsbronnen en contactpersoon analyse
 4. **Compliance Ready**: GDPR-compliant zonder data opslag
 
@@ -18,10 +17,6 @@ Een REST API die automatisch positieve en negatieve berichtgeving over Nederland
 - Contactpersoon integratie in zoekopdrachten
 - Nederlandse focus met gestructureerde output
 
-### 2. Verplichte Rechtspraak Analyse
-- **ALTIJD** uitgevoerde Rechtspraak.nl controle
-- ECLI parsing en case extractie via Open Data API
-- Inclusief contactpersoon in juridische zoekopdrachten
 - Categorisatie van juridische issues
 
 ### 3. AI-Gedreven Nederlandse Nieuwsanalyse
@@ -32,7 +27,7 @@ Een REST API die automatisch positieve en negatieve berichtgeving over Nederland
 
 ### 4. Multiple Workflow Endpoints
 - **Standard Analysis**: Company name based analysis
-- **Nederlandse Analyse**: Dutch-focused with mandatory legal check
+- **Nederlandse Analyse**: Dutch-focused analysis
 - **Simple Analysis**: Streamlined format with combined results
 
 ## Target Users
@@ -40,7 +35,6 @@ Een REST API die automatisch positieve en negatieve berichtgeving over Nederland
 - **Compliance Officers**: Due diligence processen
 - **Credit Managers**: Kredietwaardigheid assessment
 - **Business Development**: Partner/klant screening
-- **Legal Departments**: Juridische risk assessment
 
 ## Success Criteria
 
@@ -53,7 +47,7 @@ Een REST API die automatisch positieve en negatieve berichtgeving over Nederland
 
 1. **Geen Data Opslag**: Alle data moet real-time worden opgehaald
 2. **Rate Limiting**: Respecteren van API limits van externe services
-3. **Legal Compliance**: Respecteren robots.txt, fair use
+3. **Compliance**: Respecteren robots.txt, fair use
 4. **Performance**: Maximaal 60s voor deep search
 5. **Budget**: Minimale OpenAI token usage via efficiënte prompts
 
@@ -65,14 +59,14 @@ Client Request (with company_name + optional kvk_nummer/contactpersoon)
 FastAPI Application
     ↓
 ┌─────────────┬─────────────────────────┬─────────────┐
-│ KvK Service │ Legal Service (ALTIJD)  │ News Service│
+│ KvK Service │ News Service            │ News Service│
 │ (optional)  │                         │             │
 └─────────────┴─────────────────────────┴─────────────┘
     ↓               ↓                           ↓
-KvK API      Rechtspraak.nl                OpenAI API
-(mock/real)   Open Data API                    ↓
-                   ↓                    Nederlandse bronnen
-              Verplichte controle       (FD, NRC, NOS, etc.)
+KvK API      OpenAI API
+(mock/real)      ↓
+              Nederlandse bronnen
+              (FD, NRC, NOS, etc.)
 ```
 
 ## Project Phases
@@ -82,10 +76,6 @@ KvK API      Rechtspraak.nl                OpenAI API
 - KvK API integratie
 - Request/Response schemas
 
-### Phase 2: Legal Integration  
-- Rechtspraak.nl scraping
-- ECLI parsing en data extractie
-- Legal risk scoring
 
 ### Phase 3: AI News Analysis
 - OpenAI integration en function calling

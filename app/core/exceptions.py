@@ -38,16 +38,6 @@ class ExternalAPIError(BusinessAnalysisError):
 
 
 
-class LegalAPIError(ExternalAPIError):
-    """Raised when legal service (rechtspraak.nl) returns an error."""
-
-    def __init__(
-        self,
-        message: str,
-        status_code: Optional[int] = None,
-        error_code: Optional[str] = None,
-    ):
-        super().__init__(message, "Legal API", status_code, error_code)
 
 
 class OpenAIAPIError(ExternalAPIError):

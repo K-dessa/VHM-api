@@ -35,7 +35,6 @@ app/
 ├── services/
 │   ├── __init__.py
 │   ├── kvk_service.py
-│   ├── legal_service.py
 │   └── news_service.py
 ├── api/
 │   ├── __init__.py
@@ -72,7 +71,7 @@ Gebruik python-decouple voor environment management en maak een Settings class m
 ### 1.5 Exception handling
 **Prompt**: "Maak custom exceptions in app/core/exceptions.py voor:
 - ValidationError
-- ExternalAPIError (met subklasses voor KvK, Legal, OpenAI)
+- ExternalAPIError (met subklasses voor KvK, OpenAI)
 - RateLimitError
 - CompanyNotFoundError
 - TimeoutError
@@ -89,7 +88,6 @@ request_models.py:
 
 response_models.py:
 - CompanyInfo
-- LegalFindings
 - NewsAnalysis
 - RiskAssessment
 - CompanyAnalysisResponse
@@ -110,7 +108,6 @@ response_models.py:
 **Prompt**: "Implementeer /health endpoint in app/api/endpoints/health.py volgens api-specifications.md. Check connectivity naar:
 - KvK API (test call)
 - OpenAI API (test call)
-- rechtspraak.nl (basic HTTP check)
 
 Return status healthy/unhealthy/degraded met dependency statuses."
 

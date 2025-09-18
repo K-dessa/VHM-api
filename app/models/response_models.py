@@ -77,37 +77,6 @@ class CompanyInfo(BaseModel):
         return v
 
 
-class LegalCase(BaseModel):
-    """Individual legal case information."""
-
-    ecli: str = Field(..., description="European Case Law Identifier")
-    case_number: str = Field(..., description="Court case number")
-    date: datetime = Field(..., description="Date of the case/judgment")
-    court: str = Field(..., description="Name of the court")
-    type: str = Field(..., description="Type of legal case (civil, criminal, administrative)")
-    parties: List[str] = Field(default=[], description="Parties involved in the case")
-    summary: str = Field(..., description="Brief summary of the case")
-    outcome: str = Field(default="unknown", description="Case outcome (won, lost, partial, unknown)")
-    url: str = Field(..., description="URL to the full case details")
-    relevance_score: float = Field(..., ge=0, le=1, description="Relevance score (0-1)")
-    
-    @validator('ecli')
-    def validate_ecli(cls, v):
-        """Validate ECLI format."""
-        import re
-        if not re.match(r'^ECLI:[A-Z]{2}:[A-Z0-9]+:\d{4}:[A-Z0-9.]+$', v):
-            raise ValueError("Invalid ECLI format")
-        return v
-
-
-class LegalFindings(BaseModel):
-    """Legal analysis results."""
-
-    total_cases: int = Field(..., description="Total number of cases found")
-    risk_level: str = Field(..., description="Legal risk level (low, medium, high)")
-    cases: List[LegalCase] = Field(
-        default=[], description="List of relevant legal cases"
-    )
 
 
 class NewsArticle(BaseModel):
@@ -280,9 +249,6 @@ class CompanyAnalysisResponse(BaseModel):
     processing_time_seconds: float = Field(..., description="Total processing time")
 
     company_info: CompanyInfo = Field(..., description="Basic company information")
-    legal_findings: Optional[LegalFindings] = Field(
-        None, description="Legal analysis results"
-    )
     news_analysis: Optional[NewsAnalysis] = Field(
         None, description="News analysis results"
     )
@@ -314,7 +280,7 @@ class NewsItem(BaseModel):
     
     titel: str = Field(..., description="News article title")
     link: str = Field(..., description="Link to the article")
-    bron: Optional[str] = Field(None, description="Source: 'rechtspraak.nl' or news source")
+    bron: Optional[str] = Field(None, description="News source")
 
 
 class CompanyAnalysisSimpleResponse(BaseModel):
@@ -323,7 +289,7 @@ class CompanyAnalysisSimpleResponse(BaseModel):
     bedrijf: str = Field(..., description="Company name")
     samenvatting: str = Field(..., description="Brief summary of the analysis")
     goed_nieuws: List[NewsItem] = Field(default=[], description="List of positive news")
-    slecht_nieuws: List[NewsItem] = Field(default=[], description="List of negative news including ECLI cases")
+    slecht_nieuws: List[NewsItem] = Field(default=[], description="List of negative news")
 
 
 class NieuwsItem(BaseModel):
@@ -331,7 +297,7 @@ class NieuwsItem(BaseModel):
     
     titel: str = Field(..., description="Titel van het nieuwsartikel", max_length=200)
     link: str = Field(..., description="Link naar het artikel")
-    bron: str = Field(..., description="Bron van het artikel (bijv. 'fd.nl', 'rechtspraak.nl')")
+    bron: str = Field(..., description="Bron van het artikel (bijv. 'fd.nl', 'nos.nl')")
     
     @validator('link')
     def validate_link(cls, v):
@@ -354,7 +320,7 @@ class NederlandseAnalyseResponse(BaseModel):
     )
     slecht_nieuws: List[NieuwsItem] = Field(
         default=[], 
-        description="Lijst van negatieve nieuwsberichten inclusief rechtszaken"
+        description="Lijst van negatieve nieuwsberichten"
     )
     samenvatting: str = Field(
         ..., 
@@ -388,14 +354,9 @@ class NederlandseAnalyseResponse(BaseModel):
                         "link": "https://nos.nl/nieuws/asml-china-restricties",
                         "bron": "nos.nl"
                     },
-                    {
-                        "titel": "Rechtszaak aangespannen tegen ASML betreffende patentschending",
-                        "link": "https://rechtspraak.nl/uitspraken/ECLI:NL:RBOBR:2024:1234",
-                        "bron": "rechtspraak.nl"
-                    }
                 ],
-                "samenvatting": "Analyse van 3 artikelen voor ASML Holding N.V. 1 positief artikel gevonden, 2 negatieve items gevonden inclusief 1 rechtszaak. Overall sentiment is neutraal.",
-                "bronnen_gecontroleerd": ["rechtspraak.nl", "fd.nl", "nos.nl", "nrc.nl"]
+                "samenvatting": "Analyse van 2 artikelen voor ASML Holding N.V. 1 positief artikel gevonden, 1 negatief artikel gevonden. Overall sentiment is neutraal.",
+                "bronnen_gecontroleerd": ["fd.nl", "nos.nl", "nrc.nl"]
             }
         }
     }

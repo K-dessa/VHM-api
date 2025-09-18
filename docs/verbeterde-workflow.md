@@ -5,8 +5,6 @@ API Workflow (Verbeterde versie zonder KvK, met aangepaste news-workflow)
 Workflow
 	1.	Input validatie
 	•	Bedrijfsnaam (verplicht)
-	2.	Legal cases
-	•	Rechtspraak.nl check (API, max. 1/sec)
 	3.	Web crawling (Crawl4AI)
 	•	Seed: officiële website + relevante subpagina’s
 	•	Config: markdown=True, remove_boilerplate=True, same_domain=True, max_depth=2, obey_robots_txt=True
@@ -19,7 +17,7 @@ https://news.google.com/rss/search?q="<BEDRIJFSNAAM>"&hl=nl&gl=NL&ceid=NL:nl
 	5.	News analysis (AI)
 	•	Gebruik RSS-metadata + crawled content van open artikelen
 	6.	Risk assessment
-	•	AI combineert legal, nieuws en crawl-data
+	•	AI combineert nieuws en crawl-data
 	7.	Response
 	•	Ongewijzigd (volledige analyse JSON)
 
@@ -31,8 +29,6 @@ Workflow
 	1.	Input validatie
 	•	Bedrijfsnaam (verplicht)
 	•	Contactpersoon (verplicht)
-	2.	Legal check (verplicht)
-	•	Rechtspraak.nl API
 	3.	Crawl4AI web crawling (NL focus)
 	•	Alleen .nl domeinen en officiële pers/rapportpagina’s
 	4.	Dutch news collection (intern, vernieuwd)
@@ -56,7 +52,6 @@ Workflow
 	2.	Parallel processing
 	•	Google News RSS (max. 10 items, snelle fetch)
 	•	Google Custom Search JSON API (kleine set, NL voorkeur)
-	•	Rechtspraak.nl API
 	•	Crawl4AI maximaal 2–3 pagina’s (depth=1)
 	3.	Simple AI analysis
 	•	Korte samenvatting + highlights
