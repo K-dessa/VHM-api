@@ -41,7 +41,7 @@ logger = get_logger(__name__)
 set_start_time()
 
 app = FastAPI(
-    title="Bedrijfsanalyse API",
+    title=settings.APP_NAME,
     description="""
 # Business Analysis API for Dutch Companies
 
@@ -101,8 +101,9 @@ Comprehensive error responses with:
 For API support or feature requests, contact the development team.
     """,
     version=settings.APP_VERSION,
-    docs_url="/docs" if settings.DEBUG else None,
-    redoc_url="/redoc" if settings.DEBUG else None,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
     terms_of_service="https://api.bedrijfsanalyse.nl/terms",
     contact={
         "name": "Bedrijfsanalyse API Support",

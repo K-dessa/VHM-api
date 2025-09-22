@@ -186,30 +186,56 @@ async def analyze_company(
             status="Active" if web_content else "Unknown"
         )
         
-        # Fetch news analysis
+        # Fetch news analysis with timebox and compute conservative risk on partials
         logger.info("Fetching news analysis", company_name=request.company_name)
-        
-        # Set timeout based on search depth
-        timeout_seconds = settings.get_timeout_for_search_depth(request.search_depth)
-        
-        try:
-            # Run news service with timeout
+
+        news_meta = None
+        evidence = []
+        if news_service:
+            from ...core.config import settings as core_settings
+            seconds = getattr(core_settings, 'BA_NEWS_MAX_SECONDS', 40)
+            result = await news_service.analyze_with_timeout(request.company_name, seconds=seconds)
+            completed = bool(result.get('completed'))
+            items = result.get('items', [])
+            elapsed = float(result.get('elapsed', 0.0))
+
+            # Build conservative risk mapping on partials
+            neg = sum(1 for i in items if getattr(i, 'sentiment_score', 0.0) <= -0.4)
+            pos = sum(1 for i in items if getattr(i, 'sentiment_score', 0.0) >= 0.4)
+            if not completed:
+                computed_risk_level = 'elevated' if neg >= 1 else 'unknown'
+            else:
+                score = neg - pos
+                computed_risk_level = 'high' if score >= 3 else 'medium' if score >= 1 else 'low'
+
+            # Build a NewsAnalysis object from partial items to avoid null when partials exist
+            try:
+                news_analysis = await news_service._generate_overall_analysis(request.company_name, items)  # type: ignore[attr-defined]
+            except Exception:
+                news_analysis = None
+
+            news_meta = {
+                'data_completeness': 'complete' if completed else 'partial_timeout',
+                'analyzed_count': len(items),
+                'elapsed_seconds': round(elapsed, 3),
+                'negatives': neg,
+                'positives': pos,
+            }
+
+            # Evidence: top 5 by |sentiment|
+            sorted_items = sorted(items, key=lambda x: abs(getattr(x, 'sentiment_score', 0.0)), reverse=True)[:5]
+            evidence = [
+                {
+                    'title': getattr(e, 'title', None),
+                    'date': getattr(e, 'date', None),
+                    'url': getattr(e, 'url', None),
+                    'sentiment': getattr(e, 'sentiment_score', None)
+                }
+                for e in sorted_items
+            ]
+        else:
             news_analysis = None
-            if news_service:
-                try:
-                    news_analysis = await asyncio.wait_for(
-                        _fetch_news_analysis_by_name(news_service, request.company_name, request),
-                        timeout=timeout_seconds
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning("News analysis timed out", company_name=request.company_name)
-                except Exception as e:
-                    logger.warning("News analysis failed", company_name=request.company_name, error=str(e))
-                    news_analysis = None
-                
-        except asyncio.TimeoutError:
-            logger.warning("Analysis timed out, returning partial results", 
-                         request_id=request_id, timeout=timeout_seconds)
+            computed_risk_level = None
         
         # Create integrated risk assessment using the RiskService
         risk_assessment_obj = risk_service.calculate_overall_risk(
@@ -248,14 +274,32 @@ async def analyze_company(
             web_content=web_content,
             risk_assessment=risk_assessment,
             warnings=warnings,
-            data_sources=data_sources
+            data_sources=data_sources,
+            meta=news_meta,
+            evidence=evidence
         )
         
+        # Override overall risk level based on conservative mapping if partials logic applied
+        if news_service and 'computed_risk_level' in locals() and computed_risk_level:
+            analysis_response.risk_assessment.overall_risk_level = {
+                'low': RiskLevel.LOW,
+                'medium': RiskLevel.MEDIUM,
+                'high': RiskLevel.HIGH,
+                'critical': RiskLevel.CRITICAL,
+                'elevated': RiskLevel.MEDIUM,  # Map elevated to medium band
+                'unknown': RiskLevel.MEDIUM,   # Unknown -> conservative medium band
+            }.get(computed_risk_level, analysis_response.risk_assessment.overall_risk_level)
+
         logger.info(
             "Company analysis completed",
             request_id=request_id,
             processing_time=processing_time,
-            risk_level=risk_assessment.overall_risk_level
+            risk_level=analysis_response.risk_assessment.overall_risk_level,
+            data_completeness=(news_meta or {}).get('data_completeness') if news_meta else None,
+            analyzed_count=(news_meta or {}).get('analyzed_count') if news_meta else None,
+            negatives=(news_meta or {}).get('negatives') if news_meta else None,
+            positives=(news_meta or {}).get('positives') if news_meta else None,
+            elapsed_seconds=(news_meta or {}).get('elapsed_seconds') if news_meta else None,
         )
         
         # Cleanup crawl service

@@ -12,6 +12,7 @@ from crawl4ai.extraction_strategy import LLMExtractionStrategy
 
 from app.core.config import settings
 from app.models.response_models import CrawledContent, WebContent
+from app.services.google_search import GoogleSearchClient
 
 # Set up cache directory for local development and deployment
 cache_dir = os.environ.get("CRAWL4AI_DB_PATH") or "/tmp/crawl4ai"
@@ -116,10 +117,15 @@ class CrawlService:
             website_url = await self._find_company_website(company_name, focus_dutch)
 
             if not website_url:
-                logger.warning(
-                    "No website found for company", company_name=company_name
-                )
-                return None
+                # Fallback using a simple CSE-based corporate heuristic
+                fallback = await self._find_company_site_fallback(company_name)
+                if fallback:
+                    website_url = fallback
+                else:
+                    logger.warning(
+                        "No website after fallback", company_name=company_name
+                    )
+                    return None
 
             logger.info("Found company website", website=website_url)
 
@@ -155,6 +161,26 @@ class CrawlService:
                 error_type=type(e).__name__,
             )
             return None
+
+    async def _find_company_site_fallback(self, company: str) -> Optional[str]:
+        """Try a Google CSE query and pick a corporate-looking result."""
+        tokens = [t.lower() for t in company.replace("B.V.", "").replace("BV", "").split()]
+        blocklist = {"linkedin.com","facebook.com","twitter.com","instagram.com","youtube.com","news.google.com","google.com"}
+        try:
+            client = GoogleSearchClient()
+        except Exception:
+            return None
+        hits = await client.search(f'"{company}"', num=10, lang_nl=True, site_nl_only=False, news_only=False)
+        for h in hits:
+            u = h.get("url") or h.get("link")
+            if not u:
+                continue
+            host = urlparse(u).hostname or ""
+            if any(b in host for b in blocklist):
+                continue
+            if any(t in host for t in tokens):
+                return u
+        return None
 
     async def _find_company_website(
         self, company_name: str, focus_dutch: bool = False

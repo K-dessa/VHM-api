@@ -146,6 +146,18 @@ curl -X POST "http://localhost:8000/analyze-company-simple" \
 | `/analyze-company-simple` | POST | Simplified analysis with structured output |
 | `/docs` | GET | Interactive API documentation |
 
+### News analysis environment variables
+
+Override defaults via env:
+
+```
+BA_NEWS_MAX_SECONDS=40
+BA_NEWS_MAX_ARTICLES=12
+BA_NEWS_CONCURRENCY=8
+BA_DUTCH_FOCUS_DEFAULT=true
+BA_NEWS_STRONG_NEG_THRESHOLD=-0.7
+```
+
 ## 🔧 Configuration
 
 ### Environment Variables

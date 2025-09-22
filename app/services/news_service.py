@@ -24,6 +24,23 @@ from app.services.google_search import GoogleSearchClient
 
 logger = structlog.get_logger()
 
+# Concurrency control for article analysis
+_NEWS_ANALYSIS_SEMAPHORE = asyncio.Semaphore(max(1, int(getattr(settings, "BA_NEWS_CONCURRENCY", 8))))
+
+_GOOGLE_NEWS_HOST = "news.google.com"
+
+async def _resolve_google_news_url(url: str) -> str:
+    """Follow redirects for Google News wrapper URLs to get the canonical article URL."""
+    try:
+        host = urlparse(url).hostname or ""
+        if _GOOGLE_NEWS_HOST not in host:
+            return url
+        async with httpx.AsyncClient(follow_redirects=True, timeout=10) as client:
+            r = await client.get(url)
+            return str(r.url)
+    except Exception:
+        return url
+
 
 class RSSNewsSearch:
     """RSS-based news search using Google News RSS feeds as specified in improved workflow."""
@@ -417,6 +434,57 @@ class NewsService:
         except Exception as e:
             logger.warning("Failed to initialize Google Search client", error=str(e))
 
+    async def analyze_with_timeout(self, company_name: str, seconds: Optional[int] = None) -> Dict[str, Any]:
+        """Time-boxed entrypoint returning partials on timeout. Returns dict with completed, elapsed, items."""
+        start = time.perf_counter()
+        budget = int(seconds or getattr(settings, "BA_NEWS_MAX_SECONDS", 40))
+        analyzed: List[NewsArticle] = []
+        try:
+            # Use standard search to gather candidates honoring Dutch focus env
+            dutch_focus = bool(getattr(settings, "BA_DUTCH_FOCUS_DEFAULT", True))
+            search_params = {"date_range": "last_year", "language": "nl", "search_depth": "standard"}
+            if dutch_focus:
+                # Prefer Dutch RSS; reuse existing method
+                candidates = await self._perform_dutch_rss_search(company_name, search_params)
+            else:
+                candidates = await self._perform_rss_search(company_name, search_params)
+
+            # Prepare and canonicalize, limit items
+            max_items = int(getattr(settings, "BA_NEWS_MAX_ARTICLES", 12))
+            candidates = candidates[:max_items]
+            for it in candidates:
+                u = it.get("url") or it.get("link")
+                if u:
+                    it["url"] = await _resolve_google_news_url(u)
+
+            # Analyze in bounded chunks with early stopping
+            strong_neg_threshold = float(getattr(settings, "BA_NEWS_STRONG_NEG_THRESHOLD", -0.7))
+            concurrency = max(1, int(getattr(settings, "BA_NEWS_CONCURRENCY", 8)))
+            strong_neg = 0
+            for i in range(0, len(candidates), concurrency):
+                chunk = candidates[i : i + concurrency]
+                async def _an(a):
+                    async with _NEWS_ANALYSIS_SEMAPHORE:
+                        return await self._analyze_article(a, company_name)
+                results = await asyncio.gather(*(_an(a) for a in chunk), return_exceptions=True)
+                for r in results:
+                    if isinstance(r, Exception) or r is None:
+                        continue
+                    analyzed.append(r)
+                    if getattr(r, "sentiment_score", 0.0) <= strong_neg_threshold:
+                        strong_neg += 1
+                if strong_neg >= 3:
+                    break
+                # Time budget check after each chunk
+                if (time.perf_counter() - start) >= budget:
+                    raise asyncio.TimeoutError()
+
+            elapsed = time.perf_counter() - start
+            return {"completed": True, "elapsed": elapsed, "items": analyzed}
+        except asyncio.TimeoutError:
+            elapsed = time.perf_counter() - start
+            return {"completed": False, "elapsed": elapsed, "items": analyzed}
+
     async def search_dutch_company_news(
         self,
         company_name: str,
@@ -644,20 +712,27 @@ class NewsService:
                 company_name, search_params, contact_person
             )
 
-            # Analyze sentiment and relevance for each article in parallel
-            logger.info(f"Starting parallel analysis of {len(search_results)} articles")
-            
-            # Create tasks for parallel processing
-            analysis_tasks = []
-            for article in search_results:
-                task = asyncio.create_task(self._analyze_article(article, company_name))
-                analysis_tasks.append(task)
-            
-            # Wait for all analyses to complete
+            # Canonicalize Google News wrapper URLs and limit volume
+            max_articles = int(getattr(settings, "BA_NEWS_MAX_ARTICLES", 12))
+            limited_results = search_results[:max_articles]
+            canonicalized: List[Dict[str, Any]] = []
+            for item in limited_results:
+                u = item.get("url") or item.get("link")
+                if u:
+                    item["url"] = await _resolve_google_news_url(u)
+                canonicalized.append(item)
+
+            # Analyze sentiment and relevance with bounded concurrency
+            logger.info(f"Starting bounded analysis of {len(canonicalized)} articles")
+
+            async def _guarded_analyze(a: Dict[str, Any]) -> Optional[NewsArticle]:
+                async with _NEWS_ANALYSIS_SEMAPHORE:
+                    return await self._analyze_article(a, company_name)
+
+            analysis_tasks = [asyncio.create_task(_guarded_analyze(a)) for a in canonicalized]
             analysis_results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
-            
-            # Process results and filter out exceptions
-            analyzed_articles = []
+
+            analyzed_articles: List[NewsArticle] = []
             for i, result in enumerate(analysis_results):
                 if isinstance(result, Exception):
                     logger.warning(f"Article analysis failed for article {i}: {result}")
@@ -1110,6 +1185,9 @@ class NewsService:
     ) -> Optional[NewsArticle]:
         """Analyze individual article for sentiment and relevance."""
         try:
+            # Resolve Google News wrapper URL if present for better source attribution
+            if article.get("url"):
+                article["url"] = await _resolve_google_news_url(article["url"])  # type: ignore
             # Prepare the enhanced analysis prompt
             system_prompt = """Je bent een Nederlandse business intelligence analist die gespecialiseerd is in bedrijfsreputatie analyse.
 

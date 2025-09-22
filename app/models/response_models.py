@@ -262,6 +262,14 @@ class CompanyAnalysisResponse(BaseModel):
     )
     data_sources: List[str] = Field(default=[], description="Data sources used")
 
+    # Non-breaking additions
+    meta: Optional[Dict[str, Any]] = Field(
+        default=None, description="Processing metadata and data completeness info"
+    )
+    evidence: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Top evidence items supporting the assessment"
+    )
+
 
 class ErrorResponse(BaseModel):
     """Error response model."""

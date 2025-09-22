@@ -92,6 +92,13 @@ class Settings(BaseSettings):
     # Search depth parameters
     SEARCH_DEPTH_STANDARD_MAX_ARTICLES: int = config("SEARCH_DEPTH_STANDARD_MAX_ARTICLES", default=20, cast=int)
     SEARCH_DEPTH_DEEP_MAX_ARTICLES: int = config("SEARCH_DEPTH_DEEP_MAX_ARTICLES", default=50, cast=int)
+
+    # News analysis bounding (BA_* envs)
+    BA_NEWS_MAX_SECONDS: int = config("BA_NEWS_MAX_SECONDS", default=40, cast=int)
+    BA_NEWS_MAX_ARTICLES: int = config("BA_NEWS_MAX_ARTICLES", default=12, cast=int)
+    BA_NEWS_STRONG_NEG_THRESHOLD: float = config("BA_NEWS_STRONG_NEG_THRESHOLD", default=-0.7, cast=float)
+    BA_NEWS_CONCURRENCY: int = config("BA_NEWS_CONCURRENCY", default=8, cast=int)
+    BA_DUTCH_FOCUS_DEFAULT: bool = config("BA_DUTCH_FOCUS_DEFAULT", default=True, cast=bool)
     
     # Risk assessment parameters
     RISK_ASSESSMENT_WEIGHTS: Dict[str, float] = {
