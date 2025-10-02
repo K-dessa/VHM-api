@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     GOOGLE_SEARCH_ENGINE_ID: Optional[str] = config("GOOGLE_SEARCH_ENGINE_ID", default=None)
     
     # Authentication
-    API_KEYS: Optional[str] = config("API_KEYS", default=None)
+    API_KEY: Optional[str] = config("API_KEY", default=None)
     API_KEY_HEADER: str = config("API_KEY_HEADER", default="X-API-Key")
     
     # Rate limiting (environment-specific)
@@ -132,15 +132,11 @@ class Settings(BaseSettings):
             raise ValueError("OpenAI API key must start with 'sk-'")
         return v
     
-    @validator("API_KEYS")
-    def validate_api_keys(cls, v):
-        """Validate API keys format."""
-        if v and v != "test-key,demo-key,prod-key1":
-            keys = v.split(",")
-            for key in keys:
-                key = key.strip()
-                if len(key) < 32:
-                    raise ValueError("API keys must be at least 32 characters long")
+    @validator("API_KEY")
+    def validate_api_key(cls, v):
+        """Validate single API key format."""
+        if v and len(v.strip()) < 32:
+            raise ValueError("API key must be at least 32 characters long")
         return v
     
     @validator("ALLOWED_HOSTS", pre=True)
@@ -168,11 +164,7 @@ class Settings(BaseSettings):
             return emails
         return v
     
-    def get_parsed_api_keys(self) -> List[str]:
-        """Get parsed API keys as a list."""
-        if not self.API_KEYS:
-            return []
-        return [key.strip() for key in self.API_KEYS.split(",")]
+    # Removed get_parsed_api_keys: using single API_KEY now
     
     def get_timeout_for_search_depth(self, search_depth: str) -> int:
         """Get timeout based on search depth."""
@@ -235,8 +227,8 @@ class Settings(BaseSettings):
         if self.is_production():
             if not self.SECRET_KEY:
                 errors.append("SECRET_KEY is required in production")
-            if not self.API_KEYS:
-                errors.append("API_KEYS is required in production")
+            if not self.API_KEY:
+                errors.append("API_KEY is required in production")
         
         if self.ENABLE_NEWS_SERVICE and not self.OPENAI_API_KEY:
             errors.append("OPENAI_API_KEY is required when ENABLE_NEWS_SERVICE is True")
