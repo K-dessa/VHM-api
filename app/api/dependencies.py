@@ -16,27 +16,26 @@ logger = structlog.get_logger(__name__)
 security = HTTPBearer(auto_error=False)
 
 # Valid API keys (in production, these would come from a database)
-VALID_API_KEYS = {
-    "test-key": {"name": "Test Client", "permissions": ["read", "analyze"]},
-    "demo-key": {"name": "Demo Client", "permissions": ["read"]},
-    "test-api-key-12345678901234567890": {"name": "Production Test Client", "permissions": ["read", "analyze"]},
-}
+VALID_API_KEYS = {}
 
 
 def load_api_keys_from_config():
-    """Load API keys from configuration."""
+    """Load single API key from configuration into VALID_API_KEYS."""
     global VALID_API_KEYS
     
-    # Check if API keys are configured via environment
-    if hasattr(settings, 'API_KEYS') and settings.API_KEYS:
-        api_keys = settings.API_KEYS.split(',')
-        for key in api_keys:
-            key = key.strip()
-            if key and key not in VALID_API_KEYS:
-                VALID_API_KEYS[key] = {
-                    "name": f"Client {key[:8]}...",
-                    "permissions": ["read", "analyze"]
-                }
+    # Prefer single API_KEY from settings
+    if hasattr(settings, 'API_KEY') and settings.API_KEY:
+        key = settings.API_KEY.strip()
+        if key and key not in VALID_API_KEYS:
+            VALID_API_KEYS[key] = {
+                "name": "Primary Client",
+                "permissions": ["read", "analyze"]
+            }
+    else:
+        # Fallback to common test keys in development/testing for convenience
+        VALID_API_KEYS.update({
+            "test-api-key-12345678901234567890": {"name": "Production Test Client", "permissions": ["read", "analyze"]},
+        })
 
 
 # Load API keys on import

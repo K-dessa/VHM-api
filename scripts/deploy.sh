@@ -41,7 +41,7 @@ else
 fi
 
 # Check required environment variables
-required_vars=("KVK_API_KEY" "OPENAI_API_KEY" "API_KEYS")
+required_vars=("KVK_API_KEY" "OPENAI_API_KEY" "API_KEY")
 missing_vars=()
 
 for var in "${required_vars[@]}"; do

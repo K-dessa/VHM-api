@@ -54,7 +54,7 @@ GOOGLE_SEARCH_API_KEY=your_google_search_api_key
 GOOGLE_SEARCH_ENGINE_ID=your_cse_engine_id
 
 # Authentication
-API_KEYS=your-secure-api-key-32-chars-min,another-key-if-needed
+API_KEY=your-secure-api-key-32-chars-min
 
 # Performance Tuning
 RATE_LIMIT_REQUESTS=100
@@ -168,7 +168,7 @@ BA_NEWS_STRONG_NEG_THRESHOLD=-0.7
 | `DEBUG` | `false` | Debug mode |
 | `KVK_API_KEY` | - | Dutch Chamber of Commerce API key |
 | `OPENAI_API_KEY` | - | OpenAI API key for news analysis |
-| `API_KEYS` | - | Comma-separated list of valid API keys |
+| `API_KEY` | - | Single API key for authenticating requests |
 | `RATE_LIMIT_REQUESTS` | `100` | Requests per hour per API key |
 | `ANALYSIS_TIMEOUT_STANDARD` | `45` | Timeout for standard analysis (seconds) |
 | `ANALYSIS_TIMEOUT_DEEP` | `60` | Timeout for deep analysis (seconds) |
@@ -320,7 +320,7 @@ tail -f logs/app.log | jq '.'
 2. **API Key Issues**
    ```bash
    # Verify API key in environment
-   echo $API_KEYS
+   echo $API_KEY
    
    # Test with curl
    curl -H "X-API-Key: your-key" http://localhost:8000/health
