@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(uvicorn:*)",
+      "Bash(curl:*)",
+      "Bash(pytest:*)",
+      "Bash(python3:*)",
+      "Bash(black:*)",
+      "Bash(isort:*)",
+      "Bash(flake8:*)",
+      "Bash(mypy:*)",
+      "Bash(python -m pytest tests/test_services/test_kvk_service.py -v)",
+      "Bash(python:*)",
+      "Bash(DEBUG=true uvicorn app.main:app --reload --port 8002)",
+      "Bash(cat:*)",
+      "Bash(chmod:*)",
+      "Bash(pkill:*)",
+      "Bash(grep:*)",
+      "Bash(timeout:*)",
+      "Bash(git rm:*)",
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(sed:*)",
+      "Bash(playwright install)",
+      "Bash(gtimeout:*)",
+      "Bash(find:*)",
+      "Bash(docker-compose build:*)",
+      "Bash(CRAWL4_AI_BASE_DIRECTORY=/tmp/test python test_env.py)",
+      "Bash(docker build:*)",
+      "Bash(DEBUG=true uvicorn app.main:app --reload --port 8001 --host 0.0.0.0)",
+      "Bash(DEBUG=true uvicorn app.main:app --reload --port 8002 --host 0.0.0.0)",
+      "Bash(DEBUG=false uvicorn app.main:app --reload --port 8003 --host 0.0.0.0)",
+      "Bash(docker-compose:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
